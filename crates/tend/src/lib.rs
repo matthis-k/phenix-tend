@@ -73,8 +73,13 @@ pub mod flake {
                 root.display()
             ));
         }
-        std::fs::copy(&source, &generated)
-            .map_err(|e| format!("write {} from {}: {e}", generated.display(), source.display()))?;
+        std::fs::copy(&source, &generated).map_err(|e| {
+            format!(
+                "write {} from {}: {e}",
+                generated.display(),
+                source.display()
+            )
+        })?;
         Ok(status(root))
     }
 }

@@ -1,6 +1,11 @@
 { inputs, lib, ... }: {
   perSystem =
-    { config, pkgs, system, ... }:
+    {
+      config,
+      pkgs,
+      system,
+      ...
+    }:
     let
       filteredSrc = lib.cleanSource ../.;
 

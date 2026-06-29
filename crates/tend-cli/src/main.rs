@@ -264,9 +264,30 @@ fn cmd_flake(root: &PathBuf, command: FlakeCommand) -> Result<i32, String> {
         FlakeCommand::Check => tend::flake::check(root)?,
         FlakeCommand::Status => tend::flake::status(root),
     };
-    println!("flake.nix: {}", if status.flake_nix_exists { "present" } else { "missing" });
-    println!("flake.lock: {}", if status.flake_lock_exists { "present" } else { "missing" });
-    println!("flake.nix.in: {}", if status.source_exists { "present" } else { "missing" });
+    println!(
+        "flake.nix: {}",
+        if status.flake_nix_exists {
+            "present"
+        } else {
+            "missing"
+        }
+    );
+    println!(
+        "flake.lock: {}",
+        if status.flake_lock_exists {
+            "present"
+        } else {
+            "missing"
+        }
+    );
+    println!(
+        "flake.nix.in: {}",
+        if status.source_exists {
+            "present"
+        } else {
+            "missing"
+        }
+    );
     match status.up_to_date {
         Some(true) => println!("generated: up-to-date"),
         Some(false) => println!("generated: stale"),

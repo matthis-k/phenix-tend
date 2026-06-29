@@ -243,11 +243,23 @@ mod tests {
 
         fs::create_dir_all(root.join("local")).unwrap();
         fs::create_dir_all(root.join("inherited")).unwrap();
-        fs::write(root.join(".tend.json"), r#"{"version":1,"node":{"id":"root","tasks":[]}}"#).unwrap();
+        fs::write(
+            root.join(".tend.json"),
+            r#"{"version":1,"node":{"id":"root","tasks":[]}}"#,
+        )
+        .unwrap();
         fs::write(root.join("tend-shell.nix"), "{}").unwrap();
-        fs::write(root.join("local/.tend.json"), r#"{"version":1,"node":{"id":"local","tasks":[]}}"#).unwrap();
+        fs::write(
+            root.join("local/.tend.json"),
+            r#"{"version":1,"node":{"id":"local","tasks":[]}}"#,
+        )
+        .unwrap();
         fs::write(root.join("local/tend-shell.nix"), "{}").unwrap();
-        fs::write(root.join("inherited/.tend.json"), r#"{"version":1,"node":{"id":"inherited","tasks":[]}}"#).unwrap();
+        fs::write(
+            root.join("inherited/.tend.json"),
+            r#"{"version":1,"node":{"id":"inherited","tasks":[]}}"#,
+        )
+        .unwrap();
 
         let nodes = resolve_nodes(root, discover_configs(root, None).unwrap());
         let local = nodes.iter().find(|n| n.id == "local").unwrap();
@@ -258,7 +270,14 @@ mod tests {
             &root.join("local/tend-shell.nix")
         );
         assert_eq!(
-            inherited.context.shell.as_ref().unwrap().file.as_ref().unwrap(),
+            inherited
+                .context
+                .shell
+                .as_ref()
+                .unwrap()
+                .file
+                .as_ref()
+                .unwrap(),
             &root.join("tend-shell.nix")
         );
     }

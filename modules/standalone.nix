@@ -9,6 +9,14 @@
     let
       filteredSrc = lib.cleanSource ../.;
 
+      rustToolchain = [
+        pkgs.cargo
+        pkgs.rustc
+        # These provide cargo-fmt and cargo-clippy subcommands for Tend.
+        pkgs.rustfmt
+        pkgs.clippy
+      ];
+
       tendCliPkg = pkgs.rustPlatform.buildRustPackage {
         pname = "tend";
         version = "0.1.0";
@@ -79,10 +87,7 @@
         cargo-check =
           mkCargoCheck "phenix-tend-cargo-check" "cargo check --workspace --all-targets"
             "cargo check --workspace --all-targets"
-            [
-              pkgs.cargo
-              pkgs.rustc
-            ];
+            rustToolchain;
 
         cargo-test =
           mkCargoCheck "phenix-tend-cargo-test" "cargo test --workspace" "cargo test --workspace"
@@ -94,20 +99,13 @@
 
         cargo-fmt =
           mkCargoCheck "phenix-tend-cargo-fmt" "cargo fmt --all --check" "cargo fmt --all --check"
-            [
-              pkgs.cargo
-              pkgs.rustfmt
-            ];
+            rustToolchain;
 
         cargo-clippy =
           mkCargoCheck "phenix-tend-cargo-clippy"
             "cargo clippy --quiet --workspace --all-targets -- -D warnings"
             "cargo clippy --quiet --workspace --all-targets -- -D warnings"
-            [
-              pkgs.cargo
-              pkgs.clippy
-              pkgs.rustc
-            ];
+            rustToolchain;
 
         tend-gate =
           pkgs.runCommand "phenix-tend-tend-gate"
@@ -115,15 +113,12 @@
               nativeBuildInputs = [
                 tendCliPkg
                 pkgs.git
-                pkgs.cargo
-                pkgs.rustc
-                pkgs.rustfmt
-                pkgs.clippy
                 pkgs.nixfmt
                 pkgs.statix
                 pkgs.deadnix
                 pkgs.stdenv.cc
-              ];
+              ]
+              ++ rustToolchain;
               inherit cargoDeps;
               src = filteredSrc;
             }
@@ -175,15 +170,12 @@
       devShells.default = pkgs.mkShell {
         name = "phenix-tend-dev";
         packages = [
-          pkgs.cargo
-          pkgs.rustc
-          pkgs.rustfmt
-          pkgs.clippy
           pkgs.rust-analyzer
           pkgs.git
           pkgs.nix
           tendCliPkg
-        ];
+        ]
+        ++ rustToolchain;
         shellHook = ''
           echo "phenix-tend dev shell"
           echo "  cargo: $(cargo --version 2>/dev/null || echo '?')"

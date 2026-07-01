@@ -1,6 +1,6 @@
 #![allow(clippy::ptr_arg, clippy::too_many_arguments)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use clap::{Parser, Subcommand};
@@ -166,9 +166,7 @@ enum FixMode {
 fn main() {
     let cli = Cli::parse();
 
-    let root = cli
-        .root
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let root = resolve_root(cli.root);
     let configs = if cli.config.is_empty() {
         None
     } else {
@@ -256,6 +254,29 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+fn resolve_root(root: Option<PathBuf>) -> PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let Some(root) = root else {
+        return cwd;
+    };
+
+    if root.is_absolute() || root.exists() {
+        return root;
+    }
+
+    resolve_from_parent(&cwd, &root).unwrap_or(root)
+}
+
+fn resolve_from_parent(cwd: &Path, root: &Path) -> Option<PathBuf> {
+    for parent in cwd.ancestors() {
+        let candidate = parent.join(root);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn cmd_flake(root: &PathBuf, command: FlakeCommand) -> Result<i32, String> {

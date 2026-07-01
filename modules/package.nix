@@ -113,6 +113,7 @@
               nativeBuildInputs = [
                 tendCliPkg
                 pkgs.git
+                pkgs.nix
                 pkgs.nixfmt
                 pkgs.statix
                 pkgs.deadnix
@@ -125,6 +126,9 @@
             ''
               export HOME=$TMPDIR/home
               mkdir -p $HOME
+              export NIX_STATE_DIR=$TMPDIR/nix-state
+              mkdir -p $NIX_STATE_DIR/profiles
+              export NIX_PATH=nixpkgs=${pkgs.path}
               export CARGO_HOME=$TMPDIR/cargo
               export CARGO_TARGET_DIR=$TMPDIR/target
               mkdir -p $CARGO_HOME $CARGO_TARGET_DIR
@@ -132,6 +136,7 @@
               cp -rT $src source
               chmod -R u+w source
               cd source
+              rm -f tend-shell.nix
 
               # Point cargo at the vendored dependencies
               mkdir -p .cargo

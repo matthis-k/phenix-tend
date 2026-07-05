@@ -26,6 +26,12 @@ struct Cli {
     #[arg(global = true, long, short, help = "Explicit config file path(s)")]
     config: Vec<PathBuf>,
 
+    #[arg(global = true, long, help = "Disable task caching")]
+    no_cache: bool,
+
+    #[arg(global = true, long, help = "Enable task caching (default)")]
+    cache: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -115,6 +121,11 @@ enum Commands {
         #[command(subcommand)]
         command: PreflightCommand,
     },
+    /// Cache management commands
+    Cache {
+        #[command(subcommand)]
+        command: CacheCommand,
+    },
     /// Manage generated flake files
     Flake {
         #[command(subcommand)]
@@ -130,6 +141,28 @@ enum FlakeCommand {
     Check,
     /// Show generated flake file status
     Status,
+}
+
+#[derive(Subcommand)]
+enum CacheCommand {
+    /// Show cache status (entry count, cache dir)
+    Status,
+    /// Explain why a task is or isn't cached
+    Explain {
+        /// Task ID to explain
+        task_id: String,
+    },
+    /// Prune stale cache entries
+    Prune {
+        #[arg(
+            long,
+            default_value = "86400",
+            help = "Max age in seconds (default: 24h)"
+        )]
+        max_age: u64,
+    },
+    /// Clear all cache entries
+    Clear,
 }
 
 #[derive(Subcommand)]
@@ -244,6 +277,7 @@ fn main() {
             }
         }
         Commands::Preflight { command } => cmd_preflight(&root, configs.as_deref(), command),
+        Commands::Cache { command } => cmd_cache(&root, configs.as_deref(), command),
         Commands::Flake { command } => cmd_flake(&root, command),
     };
 
@@ -315,6 +349,43 @@ fn cmd_flake(root: &PathBuf, command: FlakeCommand) -> Result<i32, String> {
         None => println!("generated: unmanaged"),
     }
     Ok(0)
+}
+
+fn cmd_cache(
+    root: &PathBuf,
+    _configs: Option<&[PathBuf]>,
+    command: CacheCommand,
+) -> Result<i32, String> {
+    let cache_dir = tend::cache::cache_dir(&tend::cache::CacheConfig::default(), root);
+
+    match command {
+        CacheCommand::Status => {
+            let cnt = tend::cache::count(&cache_dir).unwrap_or(0);
+            println!("Cache directory: {}", cache_dir.display());
+            println!("Entry count: {}", cnt);
+            println!("Enabled: true");
+            println!("Default mode: cache");
+            Ok(0)
+        }
+        CacheCommand::Explain { task_id } => {
+            let cnt = tend::cache::count(&cache_dir).unwrap_or(0);
+            println!("Task '{}'", task_id);
+            println!("  Cache entries: {}", cnt);
+            println!("  Cache dir: {}", cache_dir.display());
+            println!("  (Detailed per-task cache analysis not implemented yet)");
+            Ok(0)
+        }
+        CacheCommand::Prune { max_age } => {
+            let pruned = tend::cache::prune(&cache_dir, max_age)?;
+            println!("Pruned {} stale cache entr(ies)", pruned);
+            Ok(0)
+        }
+        CacheCommand::Clear => {
+            let cleared = tend::cache::clear(&cache_dir)?;
+            println!("Cleared {} cache entr(ies)", cleared);
+            Ok(0)
+        }
+    }
 }
 
 fn get_changed_files(root: &std::path::Path) -> Result<Vec<String>, String> {

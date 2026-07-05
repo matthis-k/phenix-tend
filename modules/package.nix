@@ -136,7 +136,6 @@
               cp -rT $src source
               chmod -R u+w source
               cd source
-              rm -f tend-shell.nix
 
               # Point cargo at the vendored dependencies
               mkdir -p .cargo

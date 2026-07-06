@@ -6,6 +6,8 @@ use phenix_mcp_core::result::{ErrorKind, ToolFailure, ToolResult};
 use phenix_mcp_core::types::{MutationLevel, ToolMetadata};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tend::cache::CacheConfig;
+use tend::execute::ExecutionOptions;
 use tend::model::{Phase, PlanRequest, RunMode};
 
 fn mk_err(kind: ErrorKind, msg: &str, audit_id: &str) -> ToolFailure {
@@ -383,7 +385,17 @@ impl McpTool for TendRunTool {
             return Ok(serde_json::to_value(&result).unwrap_or_default());
         }
 
-        let results = tend::execute::execute_plan(&plan.items, &root);
+        let exec_opts = ExecutionOptions {
+            cache_config: CacheConfig {
+                enabled: false,
+                ..Default::default()
+            },
+            mode: None,
+            profile: None,
+            offline: false,
+            locked: false,
+        };
+        let results = tend::execute::execute_plan(&plan.items, &root, &exec_opts);
         let mut passed = 0;
         let mut failed = 0;
         let mut skipped = 0;
@@ -501,9 +513,20 @@ impl McpTool for TendExplainTool {
             ));
         }
 
+        let exec_opts = ExecutionOptions {
+            cache_config: CacheConfig {
+                enabled: false,
+                ..Default::default()
+            },
+            mode: None,
+            profile: None,
+            offline: false,
+            locked: false,
+        };
         let exec_results = tend::execute::execute_plan(
             &items.iter().map(|i| (*i).clone()).collect::<Vec<_>>(),
             &root,
+            &exec_opts,
         );
 
         let explanations: Vec<Value> = exec_results

@@ -2,8 +2,10 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+use tend::cache::CacheConfig;
 use tend::discover;
 use tend::execute;
+use tend::execute::ExecutionOptions;
 use tend::model::{Phase, PlanRequest, RunMode};
 use tend::planner;
 
@@ -60,7 +62,17 @@ fn run_tend_config(root: &Path) -> Vec<execute::ExecutionResult> {
     };
 
     let plan = planner::build_plan(&nodes, &req).unwrap();
-    execute::execute_plan(&plan.items, root)
+    let exec_opts = ExecutionOptions {
+        cache_config: CacheConfig {
+            enabled: false,
+            ..Default::default()
+        },
+        mode: None,
+        profile: None,
+        offline: false,
+        locked: false,
+    };
+    execute::execute_plan(&plan.items, root, &exec_opts)
 }
 
 #[test]
@@ -122,7 +134,17 @@ fn cargo_check_and_clippy_discovered_and_run() {
         "cargo-clippy should be in the plan"
     );
 
-    let results = execute::execute_plan(&plan.items, root);
+    let exec_opts = ExecutionOptions {
+        cache_config: CacheConfig {
+            enabled: false,
+            ..Default::default()
+        },
+        mode: None,
+        profile: None,
+        offline: false,
+        locked: false,
+    };
+    let results = execute::execute_plan(&plan.items, root, &exec_opts);
 
     let check = results
         .iter()

@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use crate::cache::CacheConfig;
 use crate::discover;
 use crate::execute;
+use crate::execute::ExecutionOptions;
 use crate::model::{Phase, PlanRequest, RunMode};
 use crate::planner;
 use crate::report;
@@ -354,7 +356,17 @@ pub fn run_affected_dag(
         }
 
         println!("  Running {} task(s)", plan.items.len());
-        let results = execute::execute_plan(&plan.items, &node_path);
+        let exec_opts = ExecutionOptions {
+            cache_config: CacheConfig {
+                enabled: true,
+                ..Default::default()
+            },
+            mode: Some(RunMode::Changed),
+            profile: None,
+            offline: false,
+            locked: false,
+        };
+        let results = execute::execute_plan(&plan.items, &node_path, &exec_opts);
         let (failed, _passed, _skipped) = report::print_results(&results, false);
 
         if failed > 0 {

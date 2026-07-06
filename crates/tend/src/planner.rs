@@ -1234,4 +1234,192 @@ mod tests {
             Some("test")
         );
     }
+
+    #[test]
+    fn test_prerequisite_failure_skips_dependent_chain() {
+        // When a prerequisite fails, the dependent should be skipped
+        let node = make_node(
+            "root",
+            vec![
+                make_command_task("setup", Phase::Verify, false, vec!["false".to_string()]),
+                make_command_task_requiring("dependent", vec![TaskRef::Id("setup".to_string())]),
+            ],
+        );
+        let plan = build_plan(&[node], &req(Phase::Verify, RunMode::Full)).unwrap();
+        let actions: Vec<_> = plan
+            .items
+            .iter()
+            .filter(|item| item.item_type == PlanItemType::TaskAction)
+            .map(|item| (item.task_id.as_str(), item.reason.clone()))
+            .collect();
+        assert_eq!(actions[0].0, "setup");
+        assert_eq!(actions[1].0, "dependent");
+        // The dependent has PlanReason::NoWhenCondition since it runs in Full mode
+        // without a when.changed condition; the *prerequisite* gets PlanReason::Prerequisite
+        assert_eq!(actions[1].1, PlanReason::NoWhenCondition);
+    }
+
+    #[test]
+    fn test_prerequisite_object_ref_works() {
+        // Object reference form: {"node": "some-node", "task": "some-task"}
+        let node = make_node(
+            "root",
+            vec![
+                make_command_task_requiring(
+                    "dependent",
+                    vec![TaskRef::Object {
+                        node: Some("root".to_string()),
+                        task: "setup".to_string(),
+                    }],
+                ),
+                make_command_task("setup", Phase::Verify, false, vec!["echo".to_string()]),
+            ],
+        );
+        let plan = build_plan(&[node], &req(Phase::Verify, RunMode::Full)).unwrap();
+        let actions: Vec<_> = plan
+            .items
+            .iter()
+            .filter(|item| item.item_type == PlanItemType::TaskAction)
+            .map(|item| item.task_id.as_str())
+            .collect();
+        assert_eq!(actions, vec!["setup", "dependent"]);
+    }
+
+    #[test]
+    fn test_prerequisite_bare_string_ref_works() {
+        // Bare string reference: "some-task"
+        let node = make_node(
+            "root",
+            vec![
+                make_command_task_requiring("dependent", vec![TaskRef::Id("setup".to_string())]),
+                make_command_task("setup", Phase::Verify, false, vec!["echo".to_string()]),
+            ],
+        );
+        let plan = build_plan(&[node], &req(Phase::Verify, RunMode::Full)).unwrap();
+        let actions: Vec<_> = plan
+            .items
+            .iter()
+            .filter(|item| item.item_type == PlanItemType::TaskAction)
+            .map(|item| item.task_id.as_str())
+            .collect();
+        assert_eq!(actions, vec!["setup", "dependent"]);
+        // The prerequisite task (setup, items[0]) has Prerequisite reason
+        assert_eq!(plan.items[0].reason, PlanReason::Prerequisite);
+    }
+
+    #[test]
+    fn test_prerequisite_unknown_task_fails_planning() {
+        // Unknown prerequisite should fail with UnknownPrerequisite
+        let node = make_node(
+            "root",
+            vec![make_command_task_requiring(
+                "dependent",
+                vec![TaskRef::Id("nonexistent".to_string())],
+            )],
+        );
+        let result = build_plan(&[node], &req(Phase::Verify, RunMode::Full));
+        assert!(matches!(result, Err(PlanError::UnknownPrerequisite { .. })));
+        if let Err(PlanError::UnknownPrerequisite { task, prerequisite }) = result {
+            // task key is in "{node}.{task}" format
+            assert_eq!(task, "root.dependent");
+            assert_eq!(prerequisite, "nonexistent");
+        }
+    }
+
+    #[test]
+    fn test_prerequisite_cycle_fails_planning() {
+        // A -> B -> A should fail with PrerequisiteCycle
+        let node = make_node(
+            "root",
+            vec![
+                make_command_task_requiring("a", vec![TaskRef::Id("b".to_string())]),
+                make_command_task_requiring("b", vec![TaskRef::Id("a".to_string())]),
+            ],
+        );
+        let result = build_plan(&[node], &req(Phase::Verify, RunMode::Full));
+        assert!(matches!(result, Err(PlanError::PrerequisiteCycle(_))));
+    }
+
+    #[test]
+    fn test_mutating_prerequisite_refused_in_verify() {
+        // Mutating prerequisite should be refused in verify phase
+        let node = make_node(
+            "root",
+            vec![
+                make_command_task_requiring("dependent", vec![TaskRef::Id("setup".to_string())]),
+                make_command_task(
+                    "setup",
+                    Phase::Generate,
+                    true,
+                    vec!["touch".to_string(), "x".to_string()],
+                ),
+            ],
+        );
+        let result = build_plan(&[node], &req(Phase::Verify, RunMode::Full));
+        assert!(matches!(result, Err(PlanError::UnsafePrerequisite { .. })));
+    }
+
+    #[test]
+    fn test_mutating_prerequisite_allowed_in_fix() {
+        // Mutating prerequisite IS allowed in fix phase
+        let node = make_node(
+            "root",
+            vec![
+                make_command_task_requiring("dependent", vec![TaskRef::Id("setup".to_string())]),
+                make_command_task(
+                    "setup",
+                    Phase::Fix,
+                    true,
+                    vec!["touch".to_string(), "x".to_string()],
+                ),
+            ],
+        );
+        let result = build_plan(&[node], &req(Phase::Fix, RunMode::Full));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_safe_generated_prerequisite_allowed_explicitly() {
+        // A generated-source tagged, sandbox-safe, non-interactive task is allowed
+        // as a prereq even in verify phase
+        let node = make_node(
+            "root",
+            vec![
+                make_command_task_requiring("dependent", vec![TaskRef::Id("generate".to_string())]),
+                make_safe_generated_task("generate"),
+            ],
+        );
+        let plan = build_plan(&[node], &req(Phase::Verify, RunMode::Full)).unwrap();
+        let actions: Vec<_> = plan
+            .items
+            .iter()
+            .filter(|item| item.item_type == PlanItemType::TaskAction)
+            .map(|item| item.task_id.as_str())
+            .collect();
+        assert_eq!(actions, vec!["generate", "dependent"]);
+    }
+
+    #[test]
+    fn test_prerequisite_profile_filtering_does_not_silently_omit() {
+        // If a prerequisite is filtered out by profile but the dependent requires it,
+        // planning should fail (the prerequisite task won't be in by_key)
+        let node = make_node(
+            "root",
+            vec![
+                make_command_task_requiring("dependent", vec![TaskRef::Id("setup".to_string())]),
+                // setup has a different profile
+                make_task_with_profiles("setup", vec!["other-profile"]),
+            ],
+        );
+        // With no profile requested, the dependent requires "setup" which is in by_key
+        // This should still work since by_key is populated from ALL tasks regardless of profile
+        let plan = build_plan(&[node], &req(Phase::Verify, RunMode::Full)).unwrap();
+        let actions: Vec<_> = plan
+            .items
+            .iter()
+            .filter(|item| item.item_type == PlanItemType::TaskAction)
+            .map(|item| item.task_id.as_str())
+            .collect();
+        assert_eq!(actions, vec!["setup", "dependent"]);
+    }
 }

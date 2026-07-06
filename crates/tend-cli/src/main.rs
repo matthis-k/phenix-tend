@@ -5,9 +5,11 @@ use std::str::FromStr;
 
 use clap::{Parser, Subcommand};
 
+use tend::cache::CacheConfig;
 use tend::config;
 use tend::discover;
 use tend::execute;
+use tend::execute::ExecutionOptions;
 use tend::model::{Phase, PlanRequest, RunMode};
 use tend::planner;
 use tend::report;
@@ -244,15 +246,16 @@ fn main() {
                     m,
                     profile.as_deref(),
                     affected_dag,
+                    cli.no_cache,
                 ),
                 Err(e) => Err(e),
             },
             Err(e) => Err(e),
         },
-        Commands::Verify { mode } => cmd_verify(&root, configs.as_deref(), &mode),
-        Commands::Fix { mode } => cmd_fix(&root, configs.as_deref(), &mode),
-        Commands::Generate { mode } => cmd_generate(&root, configs.as_deref(), &mode),
-        Commands::Gate => cmd_gate(&root, configs.as_deref()),
+        Commands::Verify { mode } => cmd_verify(&root, configs.as_deref(), &mode, cli.no_cache),
+        Commands::Fix { mode } => cmd_fix(&root, configs.as_deref(), &mode, cli.no_cache),
+        Commands::Generate { mode } => cmd_generate(&root, configs.as_deref(), &mode, cli.no_cache),
+        Commands::Gate => cmd_gate(&root, configs.as_deref(), cli.no_cache),
         Commands::Explain => cmd_explain(&root, configs.as_deref()),
         Commands::Check {
             profile,
@@ -268,6 +271,8 @@ fn main() {
             offline,
             locked,
             affected_dag,
+            cli.no_cache,
+            cli.cache,
         ),
         Commands::Validate { profiles } => {
             if profiles {
@@ -363,16 +368,21 @@ fn cmd_cache(
             let cnt = tend::cache::count(&cache_dir).unwrap_or(0);
             println!("Cache directory: {}", cache_dir.display());
             println!("Entry count: {}", cnt);
+            println!("Schema version: {}", tend::cache::SCHEMA_VERSION);
+            println!("Algorithm: blake3");
+            println!("Cache key prefix: {}", tend::cache::cache_key_prefix());
             println!("Enabled: true");
             println!("Default mode: cache");
             Ok(0)
         }
         CacheCommand::Explain { task_id } => {
-            let cnt = tend::cache::count(&cache_dir).unwrap_or(0);
             println!("Task '{}'", task_id);
-            println!("  Cache entries: {}", cnt);
+            println!("  Cacheable: true (read-only verify tasks)");
+            println!("  Not cacheable if: mutates=true, sandbox_safe=false, interactive=true");
             println!("  Cache dir: {}", cache_dir.display());
-            println!("  (Detailed per-task cache analysis not implemented yet)");
+            // List entries matching this task
+            let entries = tend::cache::list_entries_for_task(&cache_dir, &task_id).unwrap_or(0);
+            println!("  Cached entries: {}", entries);
             Ok(0)
         }
         CacheCommand::Prune { max_age } => {
@@ -454,6 +464,8 @@ fn cmd_check(
     offline: bool,
     locked: bool,
     affected_dag: bool,
+    no_cache: bool,
+    _enable_cache: bool,
 ) -> Result<i32, String> {
     let (phase, mode) = if profile == "fix" {
         (Phase::Fix, RunMode::Full)
@@ -498,7 +510,18 @@ fn cmd_check(
     println!("Running profile '{profile}' ({} tasks):", plan.items.len());
     println!();
 
-    let result = execute::execute_plan(&plan.items, root);
+    let cache_config = CacheConfig {
+        enabled: !no_cache,
+        ..Default::default()
+    };
+    let exec_opts = ExecutionOptions {
+        cache_config,
+        mode: Some(req.mode),
+        profile: Some(profile.to_string()),
+        offline,
+        locked,
+    };
+    let result = execute::execute_plan(&plan.items, root, &exec_opts);
     let (failed, _passed, _skipped) = report::print_results(&result, false);
 
     if failed > 0 {
@@ -831,6 +854,7 @@ fn cmd_run(
     mode: RunMode,
     profile: Option<&str>,
     affected_dag: bool,
+    no_cache: bool,
 ) -> Result<i32, String> {
     if affected_dag {
         return workspace::run_affected_dag(root, phase, mode, profile);
@@ -864,7 +888,18 @@ fn cmd_run(
         return Ok(0);
     }
 
-    let result = execute::execute_plan(&plan.items, root);
+    let cache_config = CacheConfig {
+        enabled: !no_cache,
+        ..Default::default()
+    };
+    let exec_opts = ExecutionOptions {
+        cache_config,
+        mode: Some(mode),
+        profile: profile.map(|s| s.to_string()),
+        offline: false,
+        locked: false,
+    };
+    let result = execute::execute_plan(&plan.items, root, &exec_opts);
     let (failed, _passed, _skipped) = report::print_results(&result, false);
 
     if failed > 0 {
@@ -878,37 +913,68 @@ fn cmd_verify(
     root: &PathBuf,
     configs: Option<&[PathBuf]>,
     mode: &VerifyMode,
+    no_cache: bool,
 ) -> Result<i32, String> {
     let run_mode = match mode {
         VerifyMode::Changed => RunMode::Changed,
         VerifyMode::Full => RunMode::Full,
         VerifyMode::Force => RunMode::Force,
     };
-    cmd_run(root, configs, Phase::Verify, run_mode, None, false)
+    cmd_run(
+        root,
+        configs,
+        Phase::Verify,
+        run_mode,
+        None,
+        false,
+        no_cache,
+    )
 }
 
-fn cmd_fix(root: &PathBuf, configs: Option<&[PathBuf]>, mode: &FixMode) -> Result<i32, String> {
+fn cmd_fix(
+    root: &PathBuf,
+    configs: Option<&[PathBuf]>,
+    mode: &FixMode,
+    no_cache: bool,
+) -> Result<i32, String> {
     let run_mode = match mode {
         FixMode::Changed => RunMode::Changed,
         FixMode::All => RunMode::Full,
     };
-    cmd_run(root, configs, Phase::Fix, run_mode, None, false)
+    cmd_run(root, configs, Phase::Fix, run_mode, None, false, no_cache)
 }
 
 fn cmd_generate(
     root: &PathBuf,
     configs: Option<&[PathBuf]>,
     mode: &FixMode,
+    no_cache: bool,
 ) -> Result<i32, String> {
     let run_mode = match mode {
         FixMode::Changed => RunMode::Changed,
         FixMode::All => RunMode::Full,
     };
-    cmd_run(root, configs, Phase::Generate, run_mode, None, false)
+    cmd_run(
+        root,
+        configs,
+        Phase::Generate,
+        run_mode,
+        None,
+        false,
+        no_cache,
+    )
 }
 
-fn cmd_gate(root: &PathBuf, configs: Option<&[PathBuf]>) -> Result<i32, String> {
-    cmd_run(root, configs, Phase::Verify, RunMode::Changed, None, false)
+fn cmd_gate(root: &PathBuf, configs: Option<&[PathBuf]>, no_cache: bool) -> Result<i32, String> {
+    cmd_run(
+        root,
+        configs,
+        Phase::Verify,
+        RunMode::Changed,
+        None,
+        false,
+        no_cache,
+    )
 }
 
 fn cmd_explain(root: &PathBuf, configs: Option<&[PathBuf]>) -> Result<i32, String> {

@@ -7,7 +7,10 @@
       ...
     }:
     let
-      filteredSrc = lib.cleanSource ../.;
+      filteredSrc = lib.cleanSourceWith {
+        src = lib.cleanSource ../.;
+        filter = path: type: baseNameOf path != "tend-shell.nix";
+      };
 
       rustToolchain = [
         pkgs.cargo

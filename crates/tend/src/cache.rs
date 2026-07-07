@@ -6,13 +6,6 @@ use std::time::SystemTime;
 pub struct CacheConfig {
     pub enabled: bool,
     pub dir: Option<PathBuf>,
-    pub default_mode: CacheDefaultMode,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CacheDefaultMode {
-    Cache,
-    NoCache,
 }
 
 impl Default for CacheConfig {
@@ -20,7 +13,6 @@ impl Default for CacheConfig {
         Self {
             enabled: true,
             dir: None, // will use XDG cache dir or .tend/cache/
-            default_mode: CacheDefaultMode::Cache,
         }
     }
 }

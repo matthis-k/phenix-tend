@@ -465,7 +465,7 @@ fn cmd_check(
     locked: bool,
     affected_dag: bool,
     no_cache: bool,
-    enable_cache: bool,
+    _enable_cache: bool,
 ) -> Result<i32, String> {
     let (phase, mode) = if profile == "fix" {
         (Phase::Fix, RunMode::Full)
@@ -511,13 +511,7 @@ fn cmd_check(
     println!();
 
     let cache_config = CacheConfig {
-        enabled: if no_cache {
-            false
-        } else if enable_cache {
-            true
-        } else {
-            true // default enabled
-        },
+        enabled: !no_cache,
         ..Default::default()
     };
     let exec_opts = ExecutionOptions {

@@ -68,7 +68,6 @@ fn cache_hit_skips_command_execution() {
     let cache_config = CacheConfig {
         enabled: true,
         dir: Some(cache_dir),
-        ..Default::default()
     };
 
     // First run: builds plan, executes, saves to cache
@@ -132,7 +131,6 @@ fn no_cache_forces_execution() {
     let enabled_cache = CacheConfig {
         enabled: true,
         dir: Some(cache_dir.clone()),
-        ..Default::default()
     };
 
     // First run WITH cache to establish entry
@@ -160,7 +158,6 @@ fn no_cache_forces_execution() {
     let disabled_cache = CacheConfig {
         enabled: false,
         dir: Some(cache_dir),
-        ..Default::default()
     };
     let exec_opts_no_cache = ExecutionOptions {
         cache_config: disabled_cache,
@@ -206,7 +203,6 @@ fn failed_task_not_cached() {
     let cache_config = CacheConfig {
         enabled: true,
         dir: Some(cache_dir.clone()),
-        ..Default::default()
     };
 
     let discovered = discover::discover_configs(root, None).unwrap();

@@ -465,7 +465,7 @@ fn cmd_check(
     locked: bool,
     affected_dag: bool,
     no_cache: bool,
-    _enable_cache: bool,
+    enable_cache: bool,
 ) -> Result<i32, String> {
     let (phase, mode) = if profile == "fix" {
         (Phase::Fix, RunMode::Full)
@@ -511,7 +511,13 @@ fn cmd_check(
     println!();
 
     let cache_config = CacheConfig {
-        enabled: !no_cache,
+        enabled: if no_cache {
+            false
+        } else if enable_cache {
+            true
+        } else {
+            true // default enabled
+        },
         ..Default::default()
     };
     let exec_opts = ExecutionOptions {
@@ -1124,10 +1130,12 @@ fn cmd_plan(
                 serde_json::json!({
                     "id": item.task_id,
                     "command": cmd,
-                    "tags": [],
-                    "mutates": false,
-                    "interactive": false,
-                    "sandbox_safe": true
+                    "reason": item.reason.to_string(),
+                    "phase": item.phase.to_string(),
+                    "kind": item.step.kind.description(),
+                    "prerequisite_for": item.prerequisite_for,
+                    "chain_id": item.chain_id,
+                    "matched_files": item.matched_files
                 })
             })
             .collect();

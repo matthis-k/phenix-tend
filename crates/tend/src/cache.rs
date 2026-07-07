@@ -31,6 +31,8 @@ pub struct CacheInputs {
     pub env_allowlist: Vec<(String, String)>,
     pub tend_version: String,
     pub schema_version: u32,
+    pub offline: bool,
+    pub locked: bool,
 }
 
 /// A single cache entry
@@ -62,7 +64,7 @@ pub enum CacheResult {
     Skipped(String), // reason
 }
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Compute a cache key from inputs using blake3
 pub fn compute_key(inputs: &CacheInputs) -> String {
@@ -103,6 +105,10 @@ pub fn compute_key(inputs: &CacheInputs) -> String {
         hasher.update(v.as_bytes());
         hasher.update(b"\0");
     }
+
+    // Include offline/locked flags in the cache key
+    hasher.update([if inputs.offline { 1u8 } else { 0u8 }].as_slice());
+    hasher.update([if inputs.locked { 1u8 } else { 0u8 }].as_slice());
 
     hasher.finalize().to_hex().to_string()
 }
@@ -297,7 +303,9 @@ mod tests {
             file_hashes: vec![("foo.rs".into(), "hash1".into())],
             env_allowlist: vec![],
             tend_version: "0.1.0".into(),
-            schema_version: 1,
+            schema_version: 2,
+            offline: false,
+            locked: false,
         };
         let key1 = compute_key(&inputs);
         let key2 = compute_key(&inputs);
@@ -317,7 +325,9 @@ mod tests {
             file_hashes: vec![],
             env_allowlist: vec![],
             tend_version: "0.1.0".into(),
-            schema_version: 1,
+            schema_version: 2,
+            offline: false,
+            locked: false,
         };
         let mut inputs2 = inputs1.clone();
         inputs2.task_id = "test2".into();
@@ -387,6 +397,8 @@ mod tests {
             config_hash: Some("abc123".into()),
             file_hashes: vec![("foo.rs".into(), "hash1".into())],
             env_allowlist: vec![],
+            offline: false,
+            locked: false,
         };
         let key1 = compute_key(&inputs);
         let key2 = compute_key(&inputs);
@@ -409,6 +421,8 @@ mod tests {
             config_hash: None,
             file_hashes: vec![],
             env_allowlist: vec![],
+            offline: false,
+            locked: false,
         };
         let mut changed = base.clone();
         changed.command = vec!["echo".into(), "world".into()];
@@ -429,6 +443,8 @@ mod tests {
             config_hash: None,
             file_hashes: vec![],
             env_allowlist: vec![],
+            offline: false,
+            locked: false,
         };
         let mut changed = base.clone();
         changed.file_hashes = vec![("main.rs".into(), "hash_new".into())];
@@ -449,6 +465,8 @@ mod tests {
             config_hash: None,
             file_hashes: vec![],
             env_allowlist: vec![],
+            offline: false,
+            locked: false,
         };
         let mut with_file = base.clone();
         with_file.file_hashes = vec![("missing.rs".into(), "MISSING:some/path".into())];

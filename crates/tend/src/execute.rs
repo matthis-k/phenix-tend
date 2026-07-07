@@ -185,7 +185,10 @@ pub fn execute_plan(
                         schema_version: cache::SCHEMA_VERSION,
                         tend_version: env!("CARGO_PKG_VERSION").to_string(),
                     };
-                    let _ = cache::save(cdir, &entry);
+                    if let Err(e) = cache::save(cdir, &entry) {
+                        // Cache save failure is non-fatal; execution result is already determined
+                        eprintln!("tend: warning: failed to save cache entry: {e}");
+                    }
                 }
             }
         }
@@ -289,6 +292,8 @@ fn build_cache_inputs(item: &PlanItem, root: &Path, options: &ExecutionOptions) 
             _ => vec![],
         },
         workdir,
+        offline: options.offline,
+        locked: options.locked,
         mode: options.mode.map(|m| m.to_string()).unwrap_or_default(),
         phase: item.phase.to_string(),
         profile: options.profile.clone(),

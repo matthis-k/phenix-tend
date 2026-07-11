@@ -19,11 +19,13 @@ pub fn print_results(results: &[ExecutionResult], verbose: bool) -> (usize, usiz
 
     for r in results {
         match &r.outcome {
-            CheckOutcome::Skipped { .. } => {
+            CheckOutcome::Skipped { reason } => {
                 skipped += 1;
                 let cache_tag = cache_tag(&r.cache);
                 if !cache_tag.is_empty() {
                     println!("SKIPPED {} {}", r.task_id, cache_tag);
+                } else if verbose {
+                    println!("SKIPPED {} (reason: {})", r.task_id, reason);
                 }
             }
             CheckOutcome::Passed => {

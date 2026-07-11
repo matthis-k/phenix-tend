@@ -38,6 +38,11 @@ impl RootValidator {
         Self { roots }
     }
 
+    /// Validate that a path is within declared roots.
+    ///
+    /// Absolute paths are checked against all declared roots.
+    /// Relative paths are checked for `..` escape attempts but defer final
+    /// containment validation to `resolve_in_root`.
     pub fn validate_path(&self, path: &Path) -> Result<(), String> {
         if path.is_absolute() {
             for root in &self.roots {
@@ -47,6 +52,13 @@ impl RootValidator {
             }
             return Err(format!(
                 "Path '{}' is outside all declared roots",
+                path.display()
+            ));
+        }
+        // Reject relative paths that attempt to escape via parent components
+        if path.components().any(|c| c == std::path::Component::ParentDir) {
+            return Err(format!(
+                "Relative path '{}' contains parent directory escape",
                 path.display()
             ));
         }

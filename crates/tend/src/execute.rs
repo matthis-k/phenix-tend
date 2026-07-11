@@ -156,12 +156,15 @@ pub fn execute_plan(
             }
         }
 
+        let start = std::time::Instant::now();
+
         // Save to cache on successful verify if applicable
-        if use_cache {
+        let cache_status = if use_cache {
             if let Some(ref cdir) = cache_dir {
                 if let CheckOutcome::Passed = check_result.outcome {
                     let inputs = build_cache_inputs(item, root, options);
                     let key = cache::compute_key(&inputs);
+                    let duration_ms = start.elapsed().as_millis() as u64;
                     let entry = cache::CacheEntry {
                         key: key.clone(),
                         task_id: item.task_id.clone(),
@@ -176,7 +179,7 @@ pub fn execute_plan(
                         exit_code: 0,
                         stdout_summary: Some(check_result.stdout.clone()),
                         stderr_summary: Some(check_result.stderr.clone()),
-                        duration_ms: 0,
+                        duration_ms,
                         created_at: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
@@ -189,12 +192,14 @@ pub fn execute_plan(
                         // Cache save failure is non-fatal; execution result is already determined
                         eprintln!("tend: warning: failed to save cache entry: {e}");
                     }
+                    Some(ExecutionCacheStatus::Saved)
+                } else {
+                    // Task failed: not saved, report as Miss
+                    Some(ExecutionCacheStatus::Miss)
                 }
+            } else {
+                None
             }
-        }
-
-        let cache_status = if use_cache {
-            Some(ExecutionCacheStatus::Saved)
         } else {
             None
         };

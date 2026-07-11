@@ -115,7 +115,7 @@ pub fn compute_key(inputs: &CacheInputs) -> String {
 
 /// Get the cache key prefix used for stored keys
 pub fn cache_key_prefix() -> String {
-    format!("tend-cache-v{}-", SCHEMA_VERSION)
+    format!("tend-cache-v{}-key", SCHEMA_VERSION)
 }
 
 /// Resolve the cache directory

@@ -55,6 +55,7 @@ impl McpResource for TendRunsResource {
         "application/json"
     }
     fn read(&self, _ctx: &ToolContext) -> Result<Value, ToolFailure> {
-        Ok(json!({ "runs": [], "total": 0 }))
+        // TODO: Implement actual run history tracking (requires persistent run log)
+        Ok(json!({ "runs": [], "total": 0, "note": "Run history not yet implemented" }))
     }
 }

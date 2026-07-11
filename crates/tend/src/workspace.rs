@@ -107,70 +107,44 @@ pub fn parse_topology(root: &Path) -> Result<Vec<TopoNode>, String> {
     Ok(topo)
 }
 
+fn git_diff_name_only(root: &Path, cached: bool) -> Result<Vec<String>, String> {
+    let mut args = vec!["diff"];
+    if cached {
+        args.push("--cached");
+    }
+    args.push("--name-only");
+
+    let output = std::process::Command::new("git")
+        .args(&args)
+        .current_dir(root)
+        .output()
+        .map_err(|e| format!("git diff{}{}: {e}", if cached { " --cached" } else { "" }, ""))?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = Vec::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let t = line.trim();
+        if !t.is_empty() {
+            files.push(t.to_string());
+        }
+    }
+    Ok(files)
+}
+
 pub fn get_changed_files(root: &Path) -> Result<Vec<String>, String> {
-    let mut all = Vec::new();
-
-    let output = std::process::Command::new("git")
-        .args(["diff", "--name-only"])
-        .current_dir(root)
-        .output()
-        .map_err(|e| format!("git diff: {e}"))?;
-    if output.status.success() {
-        for line in String::from_utf8_lossy(&output.stdout).lines() {
-            let t = line.trim();
-            if !t.is_empty() {
-                all.push(t.to_string());
-            }
-        }
-    }
-
-    let output = std::process::Command::new("git")
-        .args(["diff", "--cached", "--name-only"])
-        .current_dir(root)
-        .output()
-        .map_err(|e| format!("git diff --cached: {e}"))?;
-    if output.status.success() {
-        for line in String::from_utf8_lossy(&output.stdout).lines() {
-            let t = line.trim();
-            if !t.is_empty() {
-                all.push(t.to_string());
-            }
-        }
-    }
-
+    let mut all = git_diff_name_only(root, false)?;
+    let staged = git_diff_name_only(root, true)?;
+    all.extend(staged);
     all.sort();
     all.dedup();
     Ok(all)
 }
 
 fn get_changed_gitlinks(root: &Path) -> Result<Vec<String>, String> {
-    let mut changed = Vec::new();
-
-    let output = std::process::Command::new("git")
-        .args(["diff", "--name-only"])
-        .current_dir(root)
-        .output()
-        .map_err(|e| format!("git diff: {e}"))?;
-    if output.status.success() {
-        for line in String::from_utf8_lossy(&output.stdout).lines() {
-            changed.push(line.trim().to_string());
-        }
-    }
-
-    let output = std::process::Command::new("git")
-        .args(["diff", "--cached", "--name-only"])
-        .current_dir(root)
-        .output()
-        .map_err(|e| format!("git diff --cached: {e}"))?;
-    if output.status.success() {
-        for line in String::from_utf8_lossy(&output.stdout).lines() {
-            changed.push(line.trim().to_string());
-        }
-    }
-
-    changed.sort();
-    changed.dedup();
-    Ok(changed)
+    get_changed_files(root)
 }
 
 fn submodule_is_dirty(root: &Path, sub_path: &str) -> Result<bool, String> {

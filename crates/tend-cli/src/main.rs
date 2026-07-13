@@ -94,10 +94,7 @@ fn run(cli: Cli) -> Result<i32, tend::TendError> {
             files,
             json,
         } => {
-            let plan = tend::plan(
-                &workspace,
-                &request(profile, context, base, head, files),
-            )?;
+            let plan = tend::plan(&workspace, &request(profile, context, base, head, files))?;
             print_plan(&plan, json);
             Ok(0)
         }
@@ -109,10 +106,7 @@ fn run(cli: Cli) -> Result<i32, tend::TendError> {
             files,
             json,
         } => {
-            let plan = tend::plan(
-                &workspace,
-                &request(profile, context, base, head, files),
-            )?;
+            let plan = tend::plan(&workspace, &request(profile, context, base, head, files))?;
             if !json {
                 print_plan(&plan, false);
                 println!();

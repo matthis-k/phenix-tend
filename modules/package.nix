@@ -11,6 +11,17 @@
         pkgs.clippy
       ];
 
+      tendRuntime = [
+        pkgs.bash
+        pkgs.findutils
+        pkgs.git
+        pkgs.nix
+        pkgs.nixfmt
+        pkgs.statix
+        pkgs.deadnix
+      ]
+      ++ rustToolchain;
+
       tendCliPkg = pkgs.rustPlatform.buildRustPackage {
         pname = "tend";
         version = "0.1.0";
@@ -18,6 +29,14 @@
         cargoLock.lockFile = ../Cargo.lock;
         cargoBuildFlags = "-p tend-cli";
         nativeBuildInputs = [ pkgs.git ];
+      };
+
+      tendRunner = pkgs.writeShellApplication {
+        name = "tend";
+        runtimeInputs = tendRuntime;
+        text = ''
+          exec ${tendCliPkg}/bin/tend "$@"
+        '';
       };
 
       cargoDeps = tendCliPkg.cargoDeps or (throw "cargoDeps not found");
@@ -57,9 +76,9 @@
     in
     {
       packages = {
-        inherit tendCliPkg;
-        tend = tendCliPkg;
-        default = tendCliPkg;
+        tend = tendRunner;
+        tend-unwrapped = tendCliPkg;
+        default = tendRunner;
       };
 
       checks = {
@@ -86,16 +105,7 @@
         tend-gate =
           pkgs.runCommand "phenix-tend-tend-gate"
             {
-              nativeBuildInputs = [
-                tendCliPkg
-                pkgs.git
-                pkgs.nix
-                pkgs.nixfmt
-                pkgs.statix
-                pkgs.deadnix
-                pkgs.stdenv.cc
-              ]
-              ++ rustToolchain;
+              nativeBuildInputs = tendRuntime ++ [ pkgs.stdenv.cc ];
               inherit cargoDeps;
               src = source;
             }
@@ -125,7 +135,7 @@
               git init --quiet
               git add -A
 
-              tend check --profile nix-check --context nix-sandbox
+              ${tendCliPkg}/bin/tend check --profile nix-check --context nix-sandbox
 
               touch $out
             '';
@@ -134,11 +144,11 @@
       apps = {
         tend = {
           type = "app";
-          program = "${tendCliPkg}/bin/tend";
+          program = "${tendRunner}/bin/tend";
         };
         default = {
           type = "app";
-          program = "${tendCliPkg}/bin/tend";
+          program = "${tendRunner}/bin/tend";
         };
       };
 
@@ -146,11 +156,8 @@
         name = "phenix-tend-dev";
         packages = [
           pkgs.rust-analyzer
-          pkgs.git
-          pkgs.nix
-          tendCliPkg
-        ]
-        ++ rustToolchain;
+          tendRunner
+        ];
         shellHook = ''
           echo "phenix-tend dev shell"
           echo "  cargo: $(cargo --version 2>/dev/null || echo '?')"

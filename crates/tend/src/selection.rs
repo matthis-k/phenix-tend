@@ -36,23 +36,14 @@ pub(crate) fn select_files(
             let head = head.ok_or(TendError::MissingRevision("head"))?;
             git_name_only(
                 root,
-                &[
-                    "diff",
-                    "--name-only",
-                    "--diff-filter=ACMR",
-                    base,
-                    head,
-                ],
+                &["diff", "--name-only", "--diff-filter=ACMR", base, head],
             )
             .map(normalize_files)
         }
     }
 }
 
-pub(crate) fn match_files(
-    patterns: &[String],
-    files: &[String],
-) -> Result<Vec<String>, TendError> {
+pub(crate) fn match_files(patterns: &[String], files: &[String]) -> Result<Vec<String>, TendError> {
     let globs = build_globs(patterns)?;
     Ok(files
         .iter()

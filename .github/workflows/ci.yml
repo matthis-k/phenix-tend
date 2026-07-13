@@ -52,12 +52,21 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
 
+      - name: Prepare formatter diagnostics
+        if: steps.tend.outputs.status != '0'
+        shell: bash
+        run: |
+          cp modules/package.nix formatted-package.nix
+          nix run nixpkgs#nixfmt -- formatted-package.nix
+
       - name: Upload Tend diagnostics
         if: steps.tend.outputs.status != '0'
         uses: actions/upload-artifact@84480863f228bb9747b473957fcc9e309aa96097 # v4.4.2
         with:
           name: tend-ci-diagnostics
-          path: tend-ci.log
+          path: |
+            tend-ci.log
+            formatted-package.nix
           if-no-files-found: error
 
       - name: Fail when Tend checks fail

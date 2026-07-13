@@ -15,30 +15,19 @@
       rustToolchain = [
         pkgs.cargo
         pkgs.rustc
-        # These provide cargo-fmt and cargo-clippy subcommands for Tend.
         pkgs.rustfmt
         pkgs.clippy
       ];
 
       tendCliPkg = pkgs.rustPlatform.buildRustPackage {
         pname = "tend";
-        version = "0.1.0";
+        version = "0.2.0";
         src = filteredSrc;
         cargoLock.lockFile = ../Cargo.lock;
         cargoBuildFlags = "-p tend-cli";
         nativeBuildInputs = [ pkgs.git ];
       };
 
-      tendMcpPkg = pkgs.rustPlatform.buildRustPackage {
-        pname = "tend-mcp";
-        version = "0.1.0";
-        src = filteredSrc;
-        cargoLock.lockFile = ../Cargo.lock;
-        cargoBuildFlags = "-p tend-mcp";
-        nativeBuildInputs = [ pkgs.git ];
-      };
-
-      # Reuse vendored crate dependencies from any buildRustPackage.
       cargoDeps = tendCliPkg.cargoDeps or (throw "cargoDeps not found");
 
       mkCargoCheck =
@@ -60,7 +49,6 @@
             chmod -R u+w source
             cd source
 
-            # Point cargo at the vendored dependencies
             mkdir -p .cargo
             cat > .cargo/config.toml <<EOF
             [source.crates-io]
@@ -77,12 +65,8 @@
     in
     {
       packages = {
-        inherit
-          tendCliPkg
-          tendMcpPkg
-          ;
+        inherit tendCliPkg;
         tend = tendCliPkg;
-        tend-mcp = tendMcpPkg;
         default = tendCliPkg;
       };
 
@@ -140,7 +124,6 @@
               chmod -R u+w source
               cd source
 
-              # Point cargo at the vendored dependencies
               mkdir -p .cargo
               cat > .cargo/config.toml <<EOF
               [source.crates-io]
@@ -150,10 +133,10 @@
               directory = "${cargoDeps}"
               EOF
 
-              # git is needed by tend for changed-file detection
-              git init && git add -A
+              git init --quiet
+              git add -A
 
-              tend run --mode full --phase verify --profile nix-check
+              tend check --profile nix-check --context nix-sandbox
 
               touch $out
             '';
@@ -163,10 +146,6 @@
         tend = {
           type = "app";
           program = "${tendCliPkg}/bin/tend";
-        };
-        tend-mcp = {
-          type = "app";
-          program = "${tendMcpPkg}/bin/tend-mcp";
         };
         default = {
           type = "app";

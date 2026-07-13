@@ -47,6 +47,15 @@ impl std::fmt::Display for Selection {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FileArgs {
+    #[default]
+    None,
+    Matched,
+    Selected,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TendConfig {
     pub version: u32,
@@ -115,6 +124,8 @@ pub struct TaskConfig {
 pub struct TaskImplementation {
     #[serde(flatten)]
     pub kind: TaskKind,
+    #[serde(default)]
+    pub file_args: FileArgs,
     #[serde(default)]
     pub mutates: bool,
     #[serde(default)]

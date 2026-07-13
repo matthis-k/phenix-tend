@@ -203,7 +203,10 @@ fn validate_task(task: &TaskConfig, seen: &mut HashSet<String>, errors: &mut Vec
             task.id, implementation_name
         );
         if implementation_name.trim().is_empty() {
-            errors.push(format!("task '{}' has an empty implementation name", task.id));
+            errors.push(format!(
+                "task '{}' has an empty implementation name",
+                task.id
+            ));
         }
         if task.phase == Phase::Verify && implementation.mutates {
             errors.push(format!("{location} mutates during the verify phase"));
@@ -219,13 +222,10 @@ fn validate_kind(kind: &TaskKind, location: &str, errors: &mut Vec<String>) {
         TaskKind::Command { command, .. } if command.is_empty() => {
             errors.push(format!("{location} has an empty command"));
         }
-        TaskKind::FilesExist { paths } | TaskKind::FilesAbsent { paths }
-            if paths.is_empty() =>
-        {
+        TaskKind::FilesExist { paths } | TaskKind::FilesAbsent { paths } if paths.is_empty() => {
             errors.push(format!("{location} has no paths"));
         }
-        TaskKind::ForbidText { paths, patterns }
-        | TaskKind::RequireText { paths, patterns } => {
+        TaskKind::ForbidText { paths, patterns } | TaskKind::RequireText { paths, patterns } => {
             if paths.is_empty() {
                 errors.push(format!("{location} has no paths"));
             }

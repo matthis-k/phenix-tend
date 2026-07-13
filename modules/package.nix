@@ -39,12 +39,123 @@
         '';
       };
 
+      tendRustfmtCheck = pkgs.writeShellApplication {
+        name = "tend-rustfmt-check";
+        runtimeInputs = [
+          pkgs.findutils
+          pkgs.rustfmt
+        ];
+        text = ''
+          files=("$@")
+          if (( ''${#files[@]} == 0 )); then
+            mapfile -d $'\0' files < <(
+              find crates -name '*.rs' -type f -print0 | sort -z
+            )
+          fi
+
+          if (( ''${#files[@]} > 0 )); then
+            exec rustfmt --edition 2021 --check "''${files[@]}"
+          fi
+        '';
+      };
+
+      tendRustfmtFix = pkgs.writeShellApplication {
+        name = "tend-rustfmt-fix";
+        runtimeInputs = [
+          pkgs.findutils
+          pkgs.rustfmt
+        ];
+        text = ''
+          files=("$@")
+          if (( ''${#files[@]} == 0 )); then
+            mapfile -d $'\0' files < <(
+              find crates -name '*.rs' -type f -print0 | sort -z
+            )
+          fi
+
+          if (( ''${#files[@]} > 0 )); then
+            exec rustfmt --edition 2021 "''${files[@]}"
+          fi
+        '';
+      };
+
+      tendNixfmtCheck = pkgs.writeShellApplication {
+        name = "tend-nixfmt-check";
+        runtimeInputs = [
+          pkgs.findutils
+          pkgs.nixfmt
+        ];
+        text = ''
+          files=("$@")
+          if (( ''${#files[@]} == 0 )); then
+            mapfile -d $'\0' files < <(
+              find . \
+                -path './.git' -prune -o \
+                -path './target' -prune -o \
+                -name '*.nix' -type f -print0 |
+                sort -z
+            )
+          fi
+
+          if (( ''${#files[@]} > 0 )); then
+            exec nixfmt --check "''${files[@]}"
+          fi
+        '';
+      };
+
+      tendNixfmtFix = pkgs.writeShellApplication {
+        name = "tend-nixfmt-fix";
+        runtimeInputs = [
+          pkgs.findutils
+          pkgs.nixfmt
+        ];
+        text = ''
+          files=("$@")
+          if (( ''${#files[@]} == 0 )); then
+            mapfile -d $'\0' files < <(
+              find . \
+                -path './.git' -prune -o \
+                -path './target' -prune -o \
+                -name '*.nix' -type f -print0 |
+                sort -z
+            )
+          fi
+
+          if (( ''${#files[@]} > 0 )); then
+            exec nixfmt "''${files[@]}"
+          fi
+        '';
+      };
+
+      tendStatixFix = pkgs.writeShellApplication {
+        name = "tend-statix-fix";
+        runtimeInputs = [ pkgs.statix ];
+        text = ''
+          files=("$@")
+          if (( ''${#files[@]} == 0 )); then
+            exec statix fix
+          fi
+
+          for file in "''${files[@]}"; do
+            statix fix "$file"
+          done
+        '';
+      };
+
+      lifecycleCommands = [
+        tendRustfmtCheck
+        tendRustfmtFix
+        tendNixfmtCheck
+        tendNixfmtFix
+        tendStatixFix
+      ];
+
       cargoDeps = tendCliPkg.cargoDeps or (throw "cargoDeps not found");
 
       tendGate =
         pkgs.runCommand "phenix-tend-gate"
           {
-            nativeBuildInputs = tendRuntime ++ [ pkgs.stdenv.cc ];
+            nativeBuildInputs = tendRuntime ++ lifecycleCommands ++ [ pkgs.stdenv.cc ];
             inherit cargoDeps;
             src = source;
           }
@@ -84,7 +195,8 @@
         runtimeInputs = [
           tendRunner
           pkgs.git
-        ];
+        ]
+        ++ lifecycleCommands;
         text = ''
           repo_root="$(git rev-parse --show-toplevel)"
           cd "$repo_root"
@@ -121,7 +233,7 @@
 
       tendVerify = pkgs.writeShellApplication {
         name = "tend-verify";
-        runtimeInputs = [ tendRunner ];
+        runtimeInputs = [ tendRunner ] ++ lifecycleCommands;
         text = ''
           exec tend check --profile manual --context local "$@"
         '';
@@ -189,6 +301,7 @@
           tendPrePush
           pkgs.rust-analyzer
         ]
+        ++ lifecycleCommands
         ++ tendRuntime;
         shellHook = ''
           if repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then

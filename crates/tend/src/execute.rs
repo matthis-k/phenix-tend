@@ -1,309 +1,270 @@
-use crate::cache::{self, CacheConfig, CacheInputs};
-use crate::checks;
-use crate::checks::CheckOutcome;
-use crate::model::{RunMode, TaskKind};
-use crate::planner::PlanItem;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 
-#[derive(Debug, Clone, Default)]
-pub struct ExecutionOptions {
-    pub cache_config: CacheConfig,
-    pub mode: Option<RunMode>,
-    pub profile: Option<String>,
-    pub offline: bool,
-    pub locked: bool,
-}
+use globset::{GlobBuilder, GlobSetBuilder};
+use walkdir::{DirEntry, WalkDir};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum ExecutionCacheStatus {
-    Hit,
-    Miss,
-    Saved,
-    Skipped { reason: String },
-    Disabled,
-}
+use crate::model::{Plan, PlanItem, TaskKind, TaskResult, TaskStatus};
 
-impl std::fmt::Display for ExecutionCacheStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExecutionCacheStatus::Hit => write!(f, "hit"),
-            ExecutionCacheStatus::Miss => write!(f, "miss"),
-            ExecutionCacheStatus::Saved => write!(f, "saved"),
-            ExecutionCacheStatus::Skipped { reason } => write!(f, "skipped ({reason})"),
-            ExecutionCacheStatus::Disabled => write!(f, "disabled"),
-        }
-    }
-}
+pub fn execute(plan: &Plan) -> Vec<TaskResult> {
+    let mut results = Vec::with_capacity(plan.items.len());
+    let mut status_by_task = HashMap::new();
 
-#[derive(Debug, Clone)]
-pub struct ExecutionResult {
-    pub task_id: String,
-    pub description: String,
-    pub kind: String,
-    pub phase: crate::model::Phase,
-    pub outcome: CheckOutcome,
-    pub stdout: String,
-    pub stderr: String,
-    pub cache: Option<ExecutionCacheStatus>,
-}
-
-/// Check if a plan item is eligible for caching
-pub fn is_cacheable(item: &PlanItem) -> bool {
-    use crate::model::TaskKind;
-    // Verify phase only
-    if item.phase != crate::model::Phase::Verify {
-        return false;
-    }
-    // Must be a command task
-    match &item.step.kind {
-        TaskKind::Command { .. } => {}
-        _ => return false,
-    }
-    true
-}
-
-pub fn execute_plan(
-    items: &[PlanItem],
-    root: &Path,
-    options: &ExecutionOptions,
-) -> Vec<ExecutionResult> {
-    let cache_dir = if options.cache_config.enabled {
-        Some(cache::cache_dir(&options.cache_config, root))
-    } else {
-        None
-    };
-    let mut results = Vec::new();
-    let mut failed_chains: HashSet<String> = HashSet::new();
-    let mut prerequisite_failures: HashMap<String, String> = HashMap::new();
-
-    for item in items {
-        if failed_chains.contains(&item.chain_id) && !item.step.always {
-            results.push(ExecutionResult {
+    for item in &plan.items {
+        if item
+            .requires
+            .iter()
+            .any(|dependency| status_by_task.get(dependency) != Some(&TaskStatus::Passed))
+        {
+            status_by_task.insert(item.task_id.clone(), TaskStatus::Skipped);
+            results.push(TaskResult {
                 task_id: item.task_id.clone(),
-                description: item.description.clone(),
-                kind: item.step.kind.description().to_string(),
-                phase: item.phase,
-                outcome: CheckOutcome::Skipped {
-                    reason: prerequisite_failures
-                        .get(&item.chain_id)
-                        .cloned()
-                        .unwrap_or_else(|| "skipped due to earlier failure in chain".to_string()),
-                },
+                status: TaskStatus::Skipped,
                 stdout: String::new(),
-                stderr: String::new(),
-                cache: None,
+                stderr: "skipped because a prerequisite did not pass".to_string(),
             });
             continue;
         }
 
-        let workdir = effective_workdir(item, root);
-        let env = item.context.env.as_ref();
-        let shell = item.context.shell.as_ref();
-
-        // Determine if we should use cache for this item
-        let use_cache = options.cache_config.enabled && is_cacheable(item);
-
-        // Cache lookup: check if we have a cached result
-        if use_cache {
-            if let Some(ref cdir) = cache_dir {
-                let inputs = build_cache_inputs(item, root, options);
-                let key = cache::compute_key(&inputs);
-                if let Some(entry) = cache::load(cdir, &key) {
-                    results.push(ExecutionResult {
-                        cache: Some(ExecutionCacheStatus::Hit),
-                        task_id: item.task_id.clone(),
-                        description: item.description.clone(),
-                        kind: item.step.kind.description().to_string(),
-                        phase: item.phase,
-                        outcome: if entry.exit_code == 0 {
-                            CheckOutcome::Passed
-                        } else {
-                            CheckOutcome::Failed {
-                                reason: "cached failure".to_string(),
-                            }
-                        },
-                        stdout: entry.stdout_summary.unwrap_or_default(),
-                        stderr: entry.stderr_summary.unwrap_or_default(),
-                    });
-                    continue;
-                }
-            }
-        }
-
-        let check_result = match &item.step.kind {
-            TaskKind::Command { command, expect } => {
-                checks::command::run_command(command, expect.as_ref(), &workdir, env, shell)
-            }
-            TaskKind::FilesExist { paths } => checks::files::run_exist(paths, &workdir),
-            TaskKind::FilesAbsent { paths } => checks::files::run_absent(paths, &workdir),
-            TaskKind::ForbidText { paths, patterns } => {
-                checks::text::run_forbid(paths, patterns, &workdir)
-            }
-            TaskKind::RequireText { paths, patterns } => {
-                checks::text::run_require(paths, patterns, &workdir)
-            }
-        };
-
-        if check_result.outcome.is_failure() {
-            failed_chains.insert(item.chain_id.clone());
-            if let Some(required_by) = &item.prerequisite_for {
-                failed_chains.insert(required_by.clone());
-                prerequisite_failures.insert(
-                    required_by.clone(),
-                    format!("skipped because prerequisite '{}' failed", item.chain_id),
-                );
-            }
-        }
-
-        let start = std::time::Instant::now();
-
-        // Save to cache on successful verify if applicable
-        let cache_status = if use_cache {
-            if let Some(ref cdir) = cache_dir {
-                if let CheckOutcome::Passed = check_result.outcome {
-                    let inputs = build_cache_inputs(item, root, options);
-                    let key = cache::compute_key(&inputs);
-                    let duration_ms = start.elapsed().as_millis() as u64;
-                    let entry = cache::CacheEntry {
-                        key: key.clone(),
-                        task_id: item.task_id.clone(),
-                        command: match &item.step.kind {
-                            TaskKind::Command { command, .. } => command.clone(),
-                            _ => vec![],
-                        },
-                        profile: options.profile.clone(),
-                        phase: item.phase.to_string(),
-                        mode: options.mode.map(|m| m.to_string()).unwrap_or_default(),
-                        config_hash: inputs.config_hash.clone(),
-                        exit_code: 0,
-                        stdout_summary: Some(check_result.stdout.clone()),
-                        stderr_summary: Some(check_result.stderr.clone()),
-                        duration_ms,
-                        created_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs(),
-                        invalidation_reason: None,
-                        schema_version: cache::SCHEMA_VERSION,
-                        tend_version: env!("CARGO_PKG_VERSION").to_string(),
-                    };
-                    if let Err(e) = cache::save(cdir, &entry) {
-                        // Cache save failure is non-fatal; execution result is already determined
-                        eprintln!("tend: warning: failed to save cache entry: {e}");
-                    }
-                    Some(ExecutionCacheStatus::Saved)
-                } else {
-                    // Task failed: not saved, report as Miss
-                    Some(ExecutionCacheStatus::Miss)
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        results.push(ExecutionResult {
-            task_id: item.task_id.clone(),
-            description: item.description.clone(),
-            kind: item.step.kind.description().to_string(),
-            phase: item.phase,
-            outcome: check_result.outcome,
-            stdout: check_result.stdout,
-            stderr: check_result.stderr,
-            cache: cache_status,
-        });
+        let result = execute_item(item);
+        status_by_task.insert(item.task_id.clone(), result.status);
+        results.push(result);
     }
 
     results
 }
 
-fn effective_workdir(item: &PlanItem, fallback: &Path) -> std::path::PathBuf {
-    match &item.context.workdir {
-        Some(policy) => {
-            let config_dir = item.config_path.parent().unwrap_or(fallback);
-            policy.resolve(config_dir, fallback)
-        }
-        None => item.config_path.parent().unwrap_or(fallback).to_path_buf(),
-    }
+pub fn has_failures(results: &[TaskResult]) -> bool {
+    results
+        .iter()
+        .any(|result| result.status == TaskStatus::Failed)
 }
 
-/// Compute file hashes for a list of file paths.
-/// Missing files are recorded as "MISSING:<path>".
-/// Uses blake3 stable hashing.
-fn compute_file_hashes(files: &[String], workdir: &Path) -> Vec<(String, String)> {
-    let mut result = Vec::new();
-    for f in files {
-        let path = if Path::new(f).is_absolute() {
-            PathBuf::from(f)
-        } else {
-            workdir.join(f)
-        };
-        if path.exists() {
-            match std::fs::read(&path) {
-                Ok(bytes) => {
-                    let hash = blake3::hash(&bytes).to_hex().to_string();
-                    result.push((f.clone(), hash));
-                }
-                Err(_) => {
-                    result.push((f.clone(), format!("MISSING:{}", path.display())));
-                }
-            }
-        } else {
-            result.push((f.clone(), format!("MISSING:{}", path.display())));
+fn execute_item(item: &PlanItem) -> TaskResult {
+    let result = match &item.kind {
+        TaskKind::Command {
+            command,
+            expect_status,
+        } => execute_command(command, *expect_status, &item.workdir, &item.env),
+        TaskKind::FilesExist { paths } => execute_files_exist(paths, &item.workdir, true),
+        TaskKind::FilesAbsent { paths } => execute_files_exist(paths, &item.workdir, false),
+        TaskKind::ForbidText { paths, patterns } => {
+            execute_text(paths, patterns, &item.workdir, false)
         }
-    }
-    result.sort_by(|a, b| a.0.cmp(&b.0));
-    result
-}
-
-/// Compute a hash of the config file at the given path.
-/// If `config_path` is a directory, looks for `.tend.json` inside it.
-fn compute_config_hash(config_path: &Path) -> Option<String> {
-    let path = if config_path.is_file() {
-        config_path.to_path_buf()
-    } else {
-        config_path.join(".tend.json")
+        TaskKind::RequireText { paths, patterns } => {
+            execute_text(paths, patterns, &item.workdir, true)
+        }
     };
-    if path.exists() {
-        std::fs::read(&path)
-            .ok()
-            .map(|bytes| blake3::hash(&bytes).to_hex().to_string())
-    } else {
-        None
-    }
-}
 
-/// Build `CacheInputs` from a plan item and execution options.
-fn build_cache_inputs(item: &PlanItem, root: &Path, options: &ExecutionOptions) -> CacheInputs {
-    let workdir = effective_workdir(item, root);
-    let file_hashes = compute_file_hashes(&item.matched_files, &workdir);
-    let config_hash = compute_config_hash(&item.config_path);
-    let env_allowlist: Vec<(String, String)> = match &item.context.env {
-        Some(env) => {
-            let mut list: Vec<_> = env.clone().into_iter().collect();
-            list.sort_by(|a, b| a.0.cmp(&b.0));
-            list
-        }
-        None => vec![],
-    };
-    CacheInputs {
-        schema_version: cache::SCHEMA_VERSION,
-        tend_version: env!("CARGO_PKG_VERSION").to_string(),
-        task_id: item.task_id.clone(),
-        command: match &item.step.kind {
-            TaskKind::Command { command, .. } => command.clone(),
-            _ => vec![],
+    match result {
+        Ok(output) => TaskResult {
+            task_id: item.task_id.clone(),
+            status: TaskStatus::Passed,
+            stdout: output.stdout,
+            stderr: output.stderr,
         },
-        workdir,
-        offline: options.offline,
-        locked: options.locked,
-        mode: options.mode.map(|m| m.to_string()).unwrap_or_default(),
-        phase: item.phase.to_string(),
-        profile: options.profile.clone(),
-        config_hash,
-        file_hashes,
-        env_allowlist,
+        Err(output) => TaskResult {
+            task_id: item.task_id.clone(),
+            status: TaskStatus::Failed,
+            stdout: output.stdout,
+            stderr: output.stderr,
+        },
+    }
+}
+
+struct CapturedOutput {
+    stdout: String,
+    stderr: String,
+}
+
+fn execute_command(
+    command: &[String],
+    expect_status: i32,
+    workdir: &Path,
+    env: &BTreeMap<String, String>,
+) -> Result<CapturedOutput, CapturedOutput> {
+    let Some((program, arguments)) = command.split_first() else {
+        return Err(CapturedOutput {
+            stdout: String::new(),
+            stderr: "empty command".to_string(),
+        });
+    };
+
+    match Command::new(program)
+        .args(arguments)
+        .current_dir(workdir)
+        .envs(env)
+        .output()
+    {
+        Ok(output) => captured_command_result(output, expect_status),
+        Err(error) => Err(CapturedOutput {
+            stdout: String::new(),
+            stderr: format!("spawn '{program}': {error}"),
+        }),
+    }
+}
+
+fn captured_command_result(
+    output: Output,
+    expect_status: i32,
+) -> Result<CapturedOutput, CapturedOutput> {
+    let captured = CapturedOutput {
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    };
+    if output.status.code() == Some(expect_status) {
+        Ok(captured)
+    } else {
+        Err(captured)
+    }
+}
+
+fn execute_files_exist(
+    paths: &[String],
+    workdir: &Path,
+    should_exist: bool,
+) -> Result<CapturedOutput, CapturedOutput> {
+    let mismatches: Vec<String> = paths
+        .iter()
+        .filter(|path| resolve_path(path, workdir).exists() != should_exist)
+        .cloned()
+        .collect();
+    if mismatches.is_empty() {
+        Ok(empty_output())
+    } else {
+        Err(CapturedOutput {
+            stdout: String::new(),
+            stderr: format!("path expectation failed: {}", mismatches.join(", ")),
+        })
+    }
+}
+
+fn execute_text(
+    paths: &[String],
+    patterns: &[String],
+    workdir: &Path,
+    require: bool,
+) -> Result<CapturedOutput, CapturedOutput> {
+    let files = expand_paths(paths, workdir);
+    let failures: Vec<String> = patterns
+        .iter()
+        .filter(|pattern| {
+            let found = files.iter().any(|path| {
+                std::fs::read_to_string(path)
+                    .map(|content| content.contains(pattern.as_str()))
+                    .unwrap_or(false)
+            });
+            found != require
+        })
+        .cloned()
+        .collect();
+
+    if failures.is_empty() {
+        Ok(empty_output())
+    } else {
+        Err(CapturedOutput {
+            stdout: String::new(),
+            stderr: format!("text expectation failed: {}", failures.join(", ")),
+        })
+    }
+}
+
+fn resolve_path(path: &str, workdir: &Path) -> PathBuf {
+    let path = Path::new(path);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        workdir.join(path)
+    }
+}
+
+fn expand_paths(patterns: &[String], root: &Path) -> Vec<PathBuf> {
+    let mut builder = GlobSetBuilder::new();
+    for pattern in patterns {
+        if let Ok(glob) = GlobBuilder::new(pattern).literal_separator(true).build() {
+            builder.add(glob);
+        }
+    }
+    let Ok(globs) = builder.build() else {
+        return Vec::new();
+    };
+
+    WalkDir::new(root)
+        .into_iter()
+        .filter_entry(is_relevant_entry)
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter_map(|entry| {
+            let relative = entry.path().strip_prefix(root).ok()?;
+            globs.is_match(relative).then(|| entry.path().to_path_buf())
+        })
+        .collect()
+}
+
+fn is_relevant_entry(entry: &DirEntry) -> bool {
+    if entry.depth() == 0 || !entry.file_type().is_dir() {
+        return true;
+    }
+    !matches!(
+        entry.file_name().to_str(),
+        Some(".git" | ".direnv" | "node_modules" | "result" | "target")
+    )
+}
+
+fn empty_output() -> CapturedOutput {
+    CapturedOutput {
+        stdout: String::new(),
+        stderr: String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Phase, PlanReason, Selection};
+
+    fn item(id: &str, requires: &[&str], kind: TaskKind) -> PlanItem {
+        PlanItem {
+            task_id: id.to_string(),
+            description: String::new(),
+            phase: Phase::Verify,
+            implementation: "default".to_string(),
+            kind,
+            workdir: PathBuf::from("/tmp"),
+            env: BTreeMap::new(),
+            requires: requires.iter().map(|value| (*value).to_string()).collect(),
+            reason: PlanReason::Full,
+            matched_files: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn failed_dependencies_skip_consumers() {
+        let plan = Plan {
+            profile: "verify".to_string(),
+            context: "local".to_string(),
+            selection: Selection::Full,
+            files: Vec::new(),
+            items: vec![
+                item(
+                    "missing",
+                    &[],
+                    TaskKind::FilesExist {
+                        paths: vec!["tend-definitely-missing".to_string()],
+                    },
+                ),
+                item(
+                    "consumer",
+                    &["missing"],
+                    TaskKind::FilesAbsent {
+                        paths: vec!["also-missing".to_string()],
+                    },
+                ),
+            ],
+        };
+        let results = execute(&plan);
+        assert_eq!(results[0].status, TaskStatus::Failed);
+        assert_eq!(results[1].status, TaskStatus::Skipped);
     }
 }

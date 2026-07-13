@@ -1,53 +1,53 @@
-{ inputs, lib, ... }: {
+{ lib, ... }: {
   perSystem =
-    {
-      config,
-      pkgs,
-      system,
-      ...
-    }:
+    { pkgs, ... }:
     let
-      filteredSrc = lib.cleanSourceWith {
-        src = lib.cleanSource ../.;
-        filter = path: type: baseNameOf path != "tend-shell.nix";
-      };
+      source = lib.cleanSource ../.;
 
       rustToolchain = [
         pkgs.cargo
         pkgs.rustc
-        # These provide cargo-fmt and cargo-clippy subcommands for Tend.
         pkgs.rustfmt
         pkgs.clippy
       ];
 
+      tendRuntime = [
+        pkgs.bash
+        pkgs.findutils
+        pkgs.git
+        pkgs.nix
+        pkgs.nixfmt
+        pkgs.statix
+        pkgs.deadnix
+      ]
+      ++ rustToolchain;
+
       tendCliPkg = pkgs.rustPlatform.buildRustPackage {
         pname = "tend";
         version = "0.1.0";
-        src = filteredSrc;
+        src = source;
         cargoLock.lockFile = ../Cargo.lock;
         cargoBuildFlags = "-p tend-cli";
         nativeBuildInputs = [ pkgs.git ];
       };
 
-      tendMcpPkg = pkgs.rustPlatform.buildRustPackage {
-        pname = "tend-mcp";
-        version = "0.1.0";
-        src = filteredSrc;
-        cargoLock.lockFile = ../Cargo.lock;
-        cargoBuildFlags = "-p tend-mcp";
-        nativeBuildInputs = [ pkgs.git ];
+      tendRunner = pkgs.writeShellApplication {
+        name = "tend";
+        runtimeInputs = tendRuntime;
+        text = ''
+          exec ${tendCliPkg}/bin/tend "$@"
+        '';
       };
 
-      # Reuse vendored crate dependencies from any buildRustPackage.
       cargoDeps = tendCliPkg.cargoDeps or (throw "cargoDeps not found");
 
       mkCargoCheck =
-        name: description: cargoArgs: extraNativeBuildInputs:
+        name: cargoArgs: extraNativeBuildInputs:
         pkgs.runCommand name
           {
             nativeBuildInputs = extraNativeBuildInputs ++ [ pkgs.stdenv.cc ];
             inherit cargoDeps;
-            src = filteredSrc;
+            src = source;
           }
           ''
             export HOME=$TMPDIR/home
@@ -60,7 +60,6 @@
             chmod -R u+w source
             cd source
 
-            # Point cargo at the vendored dependencies
             mkdir -p .cargo
             cat > .cargo/config.toml <<EOF
             [source.crates-io]
@@ -77,54 +76,35 @@
     in
     {
       packages = {
-        inherit
-          tendCliPkg
-          tendMcpPkg
-          ;
-        tend = tendCliPkg;
-        tend-mcp = tendMcpPkg;
-        default = tendCliPkg;
+        tend = tendRunner;
+        tend-unwrapped = tendCliPkg;
+        default = tendRunner;
       };
 
       checks = {
         cargo-check =
           mkCargoCheck "phenix-tend-cargo-check" "cargo check --workspace --all-targets"
-            "cargo check --workspace --all-targets"
             rustToolchain;
 
-        cargo-test =
-          mkCargoCheck "phenix-tend-cargo-test" "cargo test --workspace" "cargo test --workspace"
-            [
-              pkgs.cargo
-              pkgs.rustc
-              pkgs.git
-            ];
+        cargo-test = mkCargoCheck "phenix-tend-cargo-test" "cargo test --workspace" [
+          pkgs.cargo
+          pkgs.rustc
+          pkgs.git
+        ];
 
-        cargo-fmt =
-          mkCargoCheck "phenix-tend-cargo-fmt" "cargo fmt --all --check" "cargo fmt --all --check"
-            rustToolchain;
+        cargo-fmt = mkCargoCheck "phenix-tend-cargo-fmt" "cargo fmt --all --check" rustToolchain;
 
         cargo-clippy =
           mkCargoCheck "phenix-tend-cargo-clippy"
-            "cargo clippy --quiet --workspace --all-targets -- -D warnings"
             "cargo clippy --quiet --workspace --all-targets -- -D warnings"
             rustToolchain;
 
         tend-gate =
           pkgs.runCommand "phenix-tend-tend-gate"
             {
-              nativeBuildInputs = [
-                tendCliPkg
-                pkgs.git
-                pkgs.nix
-                pkgs.nixfmt
-                pkgs.statix
-                pkgs.deadnix
-                pkgs.stdenv.cc
-              ]
-              ++ rustToolchain;
+              nativeBuildInputs = tendRuntime ++ [ pkgs.stdenv.cc ];
               inherit cargoDeps;
-              src = filteredSrc;
+              src = source;
             }
             ''
               export HOME=$TMPDIR/home
@@ -140,7 +120,6 @@
               chmod -R u+w source
               cd source
 
-              # Point cargo at the vendored dependencies
               mkdir -p .cargo
               cat > .cargo/config.toml <<EOF
               [source.crates-io]
@@ -150,10 +129,10 @@
               directory = "${cargoDeps}"
               EOF
 
-              # git is needed by tend for changed-file detection
-              git init && git add -A
+              git init --quiet
+              git add -A
 
-              tend run --mode full --phase verify --profile nix-check
+              ${tendCliPkg}/bin/tend check --profile full --context nix-sandbox
 
               touch $out
             '';
@@ -162,15 +141,11 @@
       apps = {
         tend = {
           type = "app";
-          program = "${tendCliPkg}/bin/tend";
-        };
-        tend-mcp = {
-          type = "app";
-          program = "${tendMcpPkg}/bin/tend-mcp";
+          program = "${tendRunner}/bin/tend";
         };
         default = {
           type = "app";
-          program = "${tendCliPkg}/bin/tend";
+          program = "${tendRunner}/bin/tend";
         };
       };
 
@@ -178,11 +153,8 @@
         name = "phenix-tend-dev";
         packages = [
           pkgs.rust-analyzer
-          pkgs.git
-          pkgs.nix
-          tendCliPkg
-        ]
-        ++ rustToolchain;
+          tendRunner
+        ];
         shellHook = ''
           echo "phenix-tend dev shell"
           echo "  cargo: $(cargo --version 2>/dev/null || echo '?')"

@@ -45,8 +45,8 @@ pub fn plan(workspace: &Workspace, request: &PlanRequest) -> Result<Plan, TendEr
         .collect();
 
     let mut roots = Vec::new();
-    let mut reasons = HashMap::new();
-    let mut matched_files = HashMap::new();
+    let mut reasons = BTreeMap::new();
+    let mut matched_files = BTreeMap::new();
     for task_id in &profile.tasks {
         let task = tasks
             .get(task_id.as_str())

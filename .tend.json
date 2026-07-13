@@ -26,7 +26,7 @@
       ],
       "contexts": ["local"]
     },
-    "pre-push": {
+    "full": {
       "phase": "verify",
       "selection": "full",
       "tasks": [
@@ -36,9 +36,14 @@
         "cargo-test",
         "nixfmt-check",
         "statix-check",
-        "deadnix-check",
-        "nix-flake-check"
+        "deadnix-check"
       ],
+      "contexts": ["local", "nix-sandbox"]
+    },
+    "pre-push": {
+      "phase": "verify",
+      "selection": "full",
+      "tasks": ["nix-flake-check"],
       "contexts": ["local"]
     },
     "ci": {
@@ -55,20 +60,6 @@
         "nix-flake-check"
       ],
       "contexts": ["local"]
-    },
-    "nix-check": {
-      "phase": "verify",
-      "selection": "full",
-      "tasks": [
-        "rustfmt-check",
-        "cargo-check",
-        "cargo-clippy",
-        "cargo-test",
-        "nixfmt-check",
-        "statix-check",
-        "deadnix-check"
-      ],
-      "contexts": ["nix-sandbox"]
     },
     "fix": {
       "phase": "fix",

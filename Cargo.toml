@@ -1,6 +1,5 @@
 [workspace]
 members = [
-  "crates/phenix-mcp-core",
   "crates/tend",
   "crates/tend-cli",
 ]

@@ -81,22 +81,16 @@ mod tests {
 
     #[test]
     fn dependencies_precede_consumers() {
-        let tasks = vec![task("compile", &["generate"]), task("generate", &[])];
-        let lookup = tasks
-            .iter()
-            .map(|task| (task.id.as_str(), task))
-            .collect();
+        let tasks = [task("compile", &["generate"]), task("generate", &[])];
+        let lookup = tasks.iter().map(|task| (task.id.as_str(), task)).collect();
         let ordered = order_tasks(&["compile".to_string()], &lookup).expect("order");
         assert_eq!(ordered, vec!["generate", "compile"]);
     }
 
     #[test]
     fn cycles_are_rejected() {
-        let tasks = vec![task("a", &["b"]), task("b", &["a"])];
-        let lookup = tasks
-            .iter()
-            .map(|task| (task.id.as_str(), task))
-            .collect();
+        let tasks = [task("a", &["b"]), task("b", &["a"])];
+        let lookup = tasks.iter().map(|task| (task.id.as_str(), task)).collect();
         let error = order_tasks(&["a".to_string()], &lookup).expect_err("cycle");
         assert!(matches!(error, TendError::DependencyCycle(_)));
     }

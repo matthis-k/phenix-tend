@@ -12,6 +12,20 @@
       ],
       "contexts": ["local"]
     },
+    "manual": {
+      "phase": "verify",
+      "selection": "changed",
+      "tasks": [
+        "rustfmt-check",
+        "cargo-check",
+        "cargo-clippy",
+        "cargo-test",
+        "nixfmt-check",
+        "statix-check",
+        "deadnix-check"
+      ],
+      "contexts": ["local"]
+    },
     "pre-push": {
       "phase": "verify",
       "selection": "full",
@@ -19,6 +33,7 @@
         "rustfmt-check",
         "cargo-check",
         "cargo-clippy",
+        "cargo-test",
         "nixfmt-check",
         "statix-check",
         "deadnix-check",
@@ -26,9 +41,9 @@
       ],
       "contexts": ["local"]
     },
-    "manual": {
+    "ci": {
       "phase": "verify",
-      "selection": "changed",
+      "selection": "git-range",
       "tasks": [
         "rustfmt-check",
         "cargo-check",
@@ -86,7 +101,6 @@
         "id": "rustfmt-check",
         "description": "Check Rust formatting",
         "phase": "verify",
-        "always": true,
         "when": {
           "changed": {
             "paths": ["Cargo.toml", "Cargo.lock", "crates/**/*.rs"]
@@ -104,7 +118,6 @@
         "id": "cargo-check",
         "description": "Check that the workspace compiles cleanly",
         "phase": "verify",
-        "always": true,
         "when": {
           "changed": {
             "paths": ["Cargo.toml", "Cargo.lock", "crates/**/*.rs"]
@@ -122,7 +135,6 @@
         "id": "cargo-clippy",
         "description": "Run clippy with deny-warnings on the workspace",
         "phase": "verify",
-        "always": true,
         "when": {
           "changed": {
             "paths": ["Cargo.toml", "Cargo.lock", "crates/**/*.rs"]
@@ -149,7 +161,6 @@
         "id": "cargo-test",
         "description": "Run Rust tests",
         "phase": "verify",
-        "always": true,
         "when": {
           "changed": {
             "paths": ["Cargo.toml", "Cargo.lock", "crates/**/*.rs"]
@@ -167,7 +178,6 @@
         "id": "nixfmt-check",
         "description": "Check Nix formatting",
         "phase": "verify",
-        "always": true,
         "when": {
           "changed": {
             "paths": ["*.nix", "modules/**/*.nix"]
@@ -189,7 +199,6 @@
         "id": "statix-check",
         "description": "Lint Nix files with statix",
         "phase": "verify",
-        "always": true,
         "when": {
           "changed": {
             "paths": ["*.nix", "modules/**/*.nix"]
@@ -207,7 +216,6 @@
         "id": "deadnix-check",
         "description": "Find dead Nix code",
         "phase": "verify",
-        "always": true,
         "when": {
           "changed": {
             "paths": ["*.nix", "modules/**/*.nix"]

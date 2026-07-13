@@ -30,16 +30,6 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Regenerate Cargo lock
-        run: nix develop --command cargo generate-lockfile
-
-      - name: Upload generated Cargo lock
-        uses: actions/upload-artifact@84480863f228bb9747b473957fcc9e309aa96097 # v4.4.2
-        with:
-          name: generated-cargo-lock
-          path: Cargo.lock
-          if-no-files-found: error
-
       - name: Run Tend CI profile
         id: tend
         shell: bash
@@ -51,7 +41,7 @@ jobs:
           if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
             BASE_SHA="$HEAD_SHA^"
           fi
-          nix run .#tend -- check \
+          nix run --locked .#tend -- check \
             --profile ci \
             --context local \
             --base "$BASE_SHA" \

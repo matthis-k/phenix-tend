@@ -1,16 +1,8 @@
-{ inputs, lib, ... }: {
+{ lib, ... }: {
   perSystem =
-    {
-      config,
-      pkgs,
-      system,
-      ...
-    }:
+    { pkgs, ... }:
     let
-      filteredSrc = lib.cleanSourceWith {
-        src = lib.cleanSource ../.;
-        filter = path: type: baseNameOf path != "tend-shell.nix";
-      };
+      source = lib.cleanSource ../.;
 
       rustToolchain = [
         pkgs.cargo
@@ -22,7 +14,7 @@
       tendCliPkg = pkgs.rustPlatform.buildRustPackage {
         pname = "tend";
         version = "0.2.0";
-        src = filteredSrc;
+        src = source;
         cargoLock.lockFile = ../Cargo.lock;
         cargoBuildFlags = "-p tend-cli";
         nativeBuildInputs = [ pkgs.git ];
@@ -30,13 +22,12 @@
 
       cargoDeps = tendCliPkg.cargoDeps or (throw "cargoDeps not found");
 
-      mkCargoCheck =
-        name: description: cargoArgs: extraNativeBuildInputs:
+      mkCargoCheck = name: cargoArgs: extraNativeBuildInputs:
         pkgs.runCommand name
           {
             nativeBuildInputs = extraNativeBuildInputs ++ [ pkgs.stdenv.cc ];
             inherit cargoDeps;
-            src = filteredSrc;
+            src = source;
           }
           ''
             export HOME=$TMPDIR/home
@@ -71,28 +62,21 @@
       };
 
       checks = {
-        cargo-check =
-          mkCargoCheck "phenix-tend-cargo-check" "cargo check --workspace --all-targets"
-            "cargo check --workspace --all-targets"
-            rustToolchain;
+        cargo-check = mkCargoCheck "phenix-tend-cargo-check"
+          "cargo check --workspace --all-targets"
+          rustToolchain;
 
-        cargo-test =
-          mkCargoCheck "phenix-tend-cargo-test" "cargo test --workspace" "cargo test --workspace"
-            [
-              pkgs.cargo
-              pkgs.rustc
-              pkgs.git
-            ];
+        cargo-test = mkCargoCheck "phenix-tend-cargo-test" "cargo test --workspace" [
+          pkgs.cargo
+          pkgs.rustc
+          pkgs.git
+        ];
 
-        cargo-fmt =
-          mkCargoCheck "phenix-tend-cargo-fmt" "cargo fmt --all --check" "cargo fmt --all --check"
-            rustToolchain;
+        cargo-fmt = mkCargoCheck "phenix-tend-cargo-fmt" "cargo fmt --all --check" rustToolchain;
 
-        cargo-clippy =
-          mkCargoCheck "phenix-tend-cargo-clippy"
-            "cargo clippy --quiet --workspace --all-targets -- -D warnings"
-            "cargo clippy --quiet --workspace --all-targets -- -D warnings"
-            rustToolchain;
+        cargo-clippy = mkCargoCheck "phenix-tend-cargo-clippy"
+          "cargo clippy --quiet --workspace --all-targets -- -D warnings"
+          rustToolchain;
 
         tend-gate =
           pkgs.runCommand "phenix-tend-tend-gate"
@@ -108,7 +92,7 @@
               ]
               ++ rustToolchain;
               inherit cargoDeps;
-              src = filteredSrc;
+              src = source;
             }
             ''
               export HOME=$TMPDIR/home

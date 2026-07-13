@@ -275,6 +275,7 @@
           "default": {
             "kind": "command",
             "command": ["statix", "fix"],
+            "file_args": "matched",
             "mutates": true
           }
         }

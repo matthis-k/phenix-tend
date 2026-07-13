@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::config::{enforce_policy, resolve_implementation};
 use crate::graph;
 use crate::model::{
-    Plan, PlanItem, PlanReason, PlanRequest, Selection, TaskConfig, TendError, Workspace,
+    FileArgs, Plan, PlanItem, PlanReason, PlanRequest, Selection, TaskConfig, TaskKind, TendError,
+    Workspace,
 };
 use crate::selection;
 
@@ -67,15 +68,19 @@ pub fn plan(workspace: &Workspace, request: &PlanRequest) -> Result<Plan, TendEr
         let (implementation_name, implementation) = resolve_implementation(task, context)?;
         enforce_policy(task, implementation, &request.context, context)?;
 
+        let task_matched_files = matched_files.get(&task.id).cloned().unwrap_or_default();
+        let kind = materialize_kind(
+            &implementation.kind,
+            implementation.file_args,
+            &files,
+            &task_matched_files,
+        );
+
         let mut env = context.env.clone();
         env.extend(implementation.env.clone());
         env.insert("TEND_PROFILE".to_string(), request.profile.clone());
         env.insert("TEND_CONTEXT".to_string(), request.context.clone());
         env.insert("TEND_SELECTION".to_string(), profile.selection.to_string());
-        env.insert(
-            "TEND_FILES_JSON".to_string(),
-            serde_json::to_string(&files).expect("serialize selected files"),
-        );
         if let Some(base) = &request.base {
             env.insert("TEND_BASE".to_string(), base.clone());
         }
@@ -95,7 +100,7 @@ pub fn plan(workspace: &Workspace, request: &PlanRequest) -> Result<Plan, TendEr
             description: task.description.clone().unwrap_or_default(),
             phase: task.phase,
             implementation: implementation_name,
-            kind: implementation.kind.clone(),
+            kind,
             workdir,
             env,
             requires: task.requires.clone(),
@@ -103,7 +108,7 @@ pub fn plan(workspace: &Workspace, request: &PlanRequest) -> Result<Plan, TendEr
                 .get(&task.id)
                 .copied()
                 .unwrap_or(PlanReason::Prerequisite),
-            matched_files: matched_files.get(&task.id).cloned().unwrap_or_default(),
+            matched_files: task_matched_files,
         });
     }
 
@@ -114,6 +119,32 @@ pub fn plan(workspace: &Workspace, request: &PlanRequest) -> Result<Plan, TendEr
         files,
         items,
     })
+}
+
+fn materialize_kind(
+    kind: &TaskKind,
+    file_args: FileArgs,
+    selected_files: &[String],
+    matched_files: &[String],
+) -> TaskKind {
+    let TaskKind::Command {
+        command,
+        expect_status,
+    } = kind
+    else {
+        return kind.clone();
+    };
+
+    let mut command = command.clone();
+    command.extend(match file_args {
+        FileArgs::None => &[][..],
+        FileArgs::Matched => matched_files,
+        FileArgs::Selected => selected_files,
+    });
+    TaskKind::Command {
+        command,
+        expect_status: *expect_status,
+    }
 }
 
 fn task_selection(
@@ -149,7 +180,7 @@ mod tests {
     use super::*;
     use crate::model::{
         ChangedConfig, ExecutionContextConfig, NodeConfig, Phase, ProfileConfig,
-        TaskImplementation, TaskKind, TendConfig, WhenConfig,
+        TaskImplementation, TendConfig, WhenConfig,
     };
     use std::path::PathBuf;
 
@@ -174,6 +205,7 @@ mod tests {
                             command: vec!["nix".to_string(), "build".to_string()],
                             expect_status: 0,
                         },
+                        file_args: FileArgs::None,
                         mutates: false,
                         interactive: false,
                         network: true,
@@ -189,6 +221,7 @@ mod tests {
                             command: vec!["cargo".to_string(), "check".to_string()],
                             expect_status: 0,
                         },
+                        file_args: FileArgs::Matched,
                         mutates: false,
                         interactive: false,
                         network: false,
@@ -249,6 +282,27 @@ mod tests {
         .expect("plan");
         assert_eq!(plan.items.len(), 1);
         assert_eq!(plan.items[0].implementation, "direct");
+    }
+
+    #[test]
+    fn matched_files_are_materialized_as_command_arguments() {
+        let plan = plan(
+            &workspace(),
+            &PlanRequest {
+                profile: "verify".to_string(),
+                context: "sandbox".to_string(),
+                base: None,
+                head: None,
+                files: Some(vec!["README.md".to_string(), "src/lib.rs".to_string()]),
+            },
+        )
+        .expect("plan");
+        match &plan.items[0].kind {
+            TaskKind::Command { command, .. } => {
+                assert_eq!(command, &["cargo", "check", "src/lib.rs"])
+            }
+            _ => panic!("expected command"),
+        }
     }
 
     #[test]

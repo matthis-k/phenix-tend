@@ -56,7 +56,7 @@ pub(crate) fn match_files(
     let globs = build_globs(patterns)?;
     Ok(files
         .iter()
-        .filter(|file| globs.is_match(file))
+        .filter(|file| globs.is_match(file.as_str()))
         .cloned()
         .collect())
 }

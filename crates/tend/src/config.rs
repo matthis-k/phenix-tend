@@ -142,6 +142,14 @@ pub fn validate(workspace: &Workspace) -> Result<(), TendError> {
             }
         }
 
+        let reachable_tasks = match graph::order_tasks(&profile.tasks, &tasks) {
+            Ok(task_ids) => task_ids,
+            Err(error) => {
+                errors.push(format!("profile '{profile_name}': {error}"));
+                Vec::new()
+            }
+        };
+
         for context_name in &profile.contexts {
             let Some(context) = config.contexts.get(context_name) else {
                 errors.push(format!(
@@ -149,7 +157,7 @@ pub fn validate(workspace: &Workspace) -> Result<(), TendError> {
                 ));
                 continue;
             };
-            for task_id in &profile.tasks {
+            for task_id in &reachable_tasks {
                 let Some(task) = tasks.get(task_id.as_str()).copied() else {
                     continue;
                 };
@@ -174,10 +182,10 @@ pub fn validate(workspace: &Workspace) -> Result<(), TendError> {
     }
 }
 
-fn validate_task(task: &TaskConfig, seen: &mut HashSet<&str>, errors: &mut Vec<String>) {
+fn validate_task(task: &TaskConfig, seen: &mut HashSet<String>, errors: &mut Vec<String>) {
     if task.id.trim().is_empty() {
         errors.push("task id must not be empty".to_string());
-    } else if !seen.insert(task.id.as_str()) {
+    } else if !seen.insert(task.id.clone()) {
         errors.push(format!("duplicate task id '{}'", task.id));
     }
     if task.implementations.is_empty() {

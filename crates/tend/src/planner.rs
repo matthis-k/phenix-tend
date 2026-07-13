@@ -136,11 +136,12 @@ fn materialize_kind(
     };
 
     let mut command = command.clone();
-    command.extend(match file_args {
+    let arguments = match file_args {
         FileArgs::None => &[][..],
         FileArgs::Matched => matched_files,
         FileArgs::Selected => selected_files,
-    });
+    };
+    command.extend(arguments.iter().cloned());
     TaskKind::Command {
         command,
         expect_status: *expect_status,

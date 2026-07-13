@@ -50,7 +50,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::model::{Phase, TaskImplementation, TaskKind};
+    use crate::model::{FileArgs, Phase, TaskImplementation, TaskKind};
 
     fn task(id: &str, requires: &[&str]) -> TaskConfig {
         TaskConfig {
@@ -68,6 +68,7 @@ mod tests {
                         command: vec!["true".to_string()],
                         expect_status: 0,
                     },
+                    file_args: FileArgs::None,
                     mutates: false,
                     interactive: false,
                     network: false,

@@ -132,7 +132,7 @@
               git init --quiet
               git add -A
 
-              ${tendCliPkg}/bin/tend check --profile nix-check --context nix-sandbox
+              ${tendCliPkg}/bin/tend check --profile full --context nix-sandbox
 
               touch $out
             '';

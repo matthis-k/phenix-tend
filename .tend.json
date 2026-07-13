@@ -101,13 +101,14 @@
         "phase": "verify",
         "when": {
           "changed": {
-            "paths": ["Cargo.toml", "Cargo.lock", "crates/**/*.rs"]
+            "paths": ["crates/**/*.rs"]
           }
         },
         "implementations": {
           "default": {
             "kind": "command",
-            "command": ["cargo", "fmt", "--all", "--check"],
+            "command": ["rustfmt", "--edition", "2021", "--check"],
+            "file_args": "matched",
             "sandbox_safe": true
           }
         }
@@ -249,13 +250,14 @@
         "phase": "fix",
         "when": {
           "changed": {
-            "paths": ["Cargo.toml", "Cargo.lock", "crates/**/*.rs"]
+            "paths": ["crates/**/*.rs"]
           }
         },
         "implementations": {
           "default": {
             "kind": "command",
-            "command": ["cargo", "fmt", "--all"],
+            "command": ["rustfmt", "--edition", "2021"],
+            "file_args": "matched",
             "mutates": true
           }
         }

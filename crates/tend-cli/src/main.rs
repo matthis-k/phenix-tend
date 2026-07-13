@@ -55,7 +55,6 @@ enum Command {
     },
 
     /// List profiles, execution contexts, and logical tasks.
-    #[command(alias = "tree")]
     List {
         #[arg(long)]
         json: bool,
@@ -127,7 +126,7 @@ fn run(cli: Cli) -> Result<i32, tend::TendError> {
             } else {
                 print_results(&results);
             }
-            Ok(i32::from(tend::has_failures(&results)))
+            Ok(if tend::has_failures(&results) { 1 } else { 0 })
         }
         Command::List { json } => {
             if json {
@@ -213,7 +212,7 @@ fn print_plan(plan: &tend::Plan, json: bool) {
     }
 
     println!(
-        "Profile '{}' in context '{}' ({}, {} changed file(s)):",
+        "Profile '{}' in context '{}' ({}, {} selected file(s)):",
         plan.profile,
         plan.context,
         plan.selection,

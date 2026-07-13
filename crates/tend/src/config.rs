@@ -3,8 +3,8 @@ use std::path::{Component, Path};
 
 use crate::graph;
 use crate::model::{
-    ExecutionContextConfig, Phase, TaskConfig, TaskImplementation, TaskKind, TendConfig, TendError,
-    Workspace, CONFIG_VERSION,
+    ExecutionContextConfig, FileArgs, Phase, TaskConfig, TaskImplementation, TaskKind, TendConfig,
+    TendError, Workspace, CONFIG_VERSION,
 };
 use crate::selection;
 
@@ -210,6 +210,13 @@ fn validate_task(task: &TaskConfig, seen: &mut HashSet<String>, errors: &mut Vec
         }
         if task.phase == Phase::Verify && implementation.mutates {
             errors.push(format!("{location} mutates during the verify phase"));
+        }
+        if implementation.file_args != FileArgs::None
+            && !matches!(implementation.kind, TaskKind::Command { .. })
+        {
+            errors.push(format!(
+                "{location} requests file arguments for a non-command task"
+            ));
         }
         validate_workdir(implementation.workdir.as_deref(), &location, errors);
         validate_env(&implementation.env, &location, errors);

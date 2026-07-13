@@ -239,9 +239,19 @@ pub enum TendError {
     InvalidConfig(Vec<String>),
     UnknownProfile(String),
     UnknownContext(String),
-    ContextNotAllowed { profile: String, context: String },
-    MissingImplementation { task: String, implementation: String },
-    PolicyViolation { task: String, context: String, reason: String },
+    ContextNotAllowed {
+        profile: String,
+        context: String,
+    },
+    MissingImplementation {
+        task: String,
+        implementation: String,
+    },
+    PolicyViolation {
+        task: String,
+        context: String,
+        reason: String,
+    },
     MissingRevision(&'static str),
     Git(String),
     DependencyCycle(String),

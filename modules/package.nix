@@ -86,16 +86,13 @@
           mkCargoCheck "phenix-tend-cargo-check" "cargo check --workspace --all-targets"
             rustToolchain;
 
-        cargo-test =
-          mkCargoCheck "phenix-tend-cargo-test" "cargo test --workspace"
-            [
-              pkgs.cargo
-              pkgs.rustc
-              pkgs.git
-            ];
+        cargo-test = mkCargoCheck "phenix-tend-cargo-test" "cargo test --workspace" [
+          pkgs.cargo
+          pkgs.rustc
+          pkgs.git
+        ];
 
-        cargo-fmt =
-          mkCargoCheck "phenix-tend-cargo-fmt" "cargo fmt --all --check" rustToolchain;
+        cargo-fmt = mkCargoCheck "phenix-tend-cargo-fmt" "cargo fmt --all --check" rustToolchain;
 
         cargo-clippy =
           mkCargoCheck "phenix-tend-cargo-clippy"

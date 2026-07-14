@@ -50,6 +50,8 @@ Command tasks receive planner metadata through environment variables:
 
 These variables are metadata for task implementations. File selection remains materialized in the immutable plan and should normally be consumed through `file_args` rather than reparsed from Git state.
 
+Command execution has a 30-minute deadline by default. Set `TEND_TIMEOUT_SECONDS` in an execution context or implementation environment to override it for that command. A value of `0` explicitly disables the deadline. Invalid values fail the task before it is spawned.
+
 Human-readable output is intentionally compact. `plan --json`, `check --json`, and `list --json` provide the structured interfaces for automation and diagnostics.
 
 There is no schema-v1 compatibility layer.

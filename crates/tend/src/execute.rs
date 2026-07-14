@@ -400,7 +400,9 @@ mod tests {
         let results = execute(&plan);
 
         assert_eq!(results[0].status, TaskStatus::Failed);
-        assert!(results[0].stderr.contains("command timed out after 1 second"));
+        assert!(results[0]
+            .stderr
+            .contains("command timed out after 1 second"));
     }
 
     #[test]

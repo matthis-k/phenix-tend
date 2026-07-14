@@ -3,11 +3,14 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use tend::{PlanRequest, TaskKind, TaskStatus};
 
+const CLI_CONTRACT: &str = "Process contract:\n  0  Configuration and selected tasks succeeded.\n  1  At least one selected task failed.\n  2  Tend could not load, validate, plan, or execute the request.\n\nUse --json with plan, check, or list for structured automation output.";
+
 #[derive(Parser)]
 #[command(
     name = "tend",
     version,
-    about = "Deterministic profile and execution-context task runner"
+    about = "Deterministic profile and execution-context task runner",
+    after_help = CLI_CONTRACT
 )]
 struct Cli {
     #[arg(long, global = true, default_value = ".")]

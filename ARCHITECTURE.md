@@ -51,6 +51,16 @@ Command implementations may explicitly request selected files as arguments:
 
 The planner materializes these arguments in the immutable plan. Scripts do not parse Tend-specific environment payloads or reimplement Git selection.
 
+## Command trust boundary
+
+A `.tend.json` file is executable repository configuration, not untrusted data. A command implementation runs the configured executable directly, with the configured arguments, working directory, and environment. Tend does not invoke a shell unless the configuration explicitly names one.
+
+Users and automation must therefore review Tend configuration with the same care as build scripts and CI workflows. Cloning or checking out an untrusted repository and running `tend check` can execute code from that repository.
+
+Execution-context capability checks constrain declared behavior; they are not a security sandbox. Cross-repository composition must preserve an explicit trust decision at the repository boundary rather than silently importing executable task definitions.
+
+The planner injects stable metadata variables into command environments: `TEND_PROFILE`, `TEND_CONTEXT`, `TEND_SELECTION`, and, when supplied, `TEND_BASE` and `TEND_HEAD`. They describe the already-resolved plan and do not replace selection or policy enforcement.
+
 ## Change selection
 
 Change selection is profile data:

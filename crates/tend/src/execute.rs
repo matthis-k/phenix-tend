@@ -1,11 +1,18 @@
 use std::collections::{BTreeMap, HashMap};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use globset::{GlobBuilder, GlobSetBuilder};
 use walkdir::{DirEntry, WalkDir};
 
 use crate::model::{Plan, PlanItem, TaskKind, TaskResult, TaskStatus};
+
+const DEFAULT_COMMAND_TIMEOUT_SECONDS: u64 = 30 * 60;
+const COMMAND_TIMEOUT_ENV: &str = "TEND_TIMEOUT_SECONDS";
+const COMMAND_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 pub fn execute(plan: &Plan) -> Vec<TaskResult> {
     let mut results = Vec::with_capacity(plan.items.len());
@@ -90,30 +97,122 @@ fn execute_command(
             stderr: "empty command".to_string(),
         });
     };
+    let timeout = match command_timeout(env) {
+        Ok(timeout) => timeout,
+        Err(message) => {
+            return Err(CapturedOutput {
+                stdout: String::new(),
+                stderr: message,
+            });
+        }
+    };
 
-    match Command::new(program)
+    let mut child = match Command::new(program)
         .args(arguments)
         .current_dir(workdir)
         .envs(env)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
     {
-        Ok(output) => captured_command_result(output, expect_status),
-        Err(error) => Err(CapturedOutput {
-            stdout: String::new(),
-            stderr: format!("spawn '{program}': {error}"),
-        }),
+        Ok(child) => child,
+        Err(error) => {
+            return Err(CapturedOutput {
+                stdout: String::new(),
+                stderr: format!("spawn '{program}': {error}"),
+            });
+        }
+    };
+
+    let stdout_reader = child.stdout.take().map(read_stream);
+    let stderr_reader = child.stderr.take().map(read_stream);
+    let (status, timed_out) = match wait_for_child(&mut child, timeout) {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(CapturedOutput {
+                stdout: join_stream(stdout_reader),
+                stderr: append_message(join_stream(stderr_reader), format!("wait '{program}': {error}")),
+            });
+        }
+    };
+
+    let stdout = join_stream(stdout_reader);
+    let mut stderr = join_stream(stderr_reader);
+    if timed_out {
+        let seconds = timeout.map_or(0, |duration| duration.as_secs());
+        stderr = append_message(
+            stderr,
+            format!("command timed out after {seconds} second(s): {}", command.join(" ")),
+        );
+    }
+
+    captured_command_result(status, stdout, stderr, expect_status, timed_out)
+}
+
+fn command_timeout(env: &BTreeMap<String, String>) -> Result<Option<Duration>, String> {
+    let Some(raw) = env.get(COMMAND_TIMEOUT_ENV) else {
+        return Ok(Some(Duration::from_secs(DEFAULT_COMMAND_TIMEOUT_SECONDS)));
+    };
+    let seconds = raw.parse::<u64>().map_err(|error| {
+        format!("invalid {COMMAND_TIMEOUT_ENV} value '{raw}': expected a non-negative integer: {error}")
+    })?;
+    Ok((seconds != 0).then(|| Duration::from_secs(seconds)))
+}
+
+fn wait_for_child(
+    child: &mut Child,
+    timeout: Option<Duration>,
+) -> std::io::Result<(ExitStatus, bool)> {
+    let Some(timeout) = timeout else {
+        return child.wait().map(|status| (status, false));
+    };
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok((status, false));
+        }
+        if Instant::now() >= deadline {
+            child.kill()?;
+            return child.wait().map(|status| (status, true));
+        }
+        thread::sleep(COMMAND_POLL_INTERVAL);
     }
 }
 
+fn read_stream(mut stream: impl Read + Send + 'static) -> thread::JoinHandle<Vec<u8>> {
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stream.read_to_end(&mut bytes);
+        bytes
+    })
+}
+
+fn join_stream(reader: Option<thread::JoinHandle<Vec<u8>>>) -> String {
+    let bytes = reader
+        .and_then(|reader| reader.join().ok())
+        .unwrap_or_default();
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn append_message(mut output: String, message: String) -> String {
+    if !output.is_empty() && !output.ends_with('\n') {
+        output.push('\n');
+    }
+    output.push_str(&message);
+    output
+}
+
 fn captured_command_result(
-    output: Output,
+    status: ExitStatus,
+    stdout: String,
+    stderr: String,
     expect_status: i32,
+    timed_out: bool,
 ) -> Result<CapturedOutput, CapturedOutput> {
-    let captured = CapturedOutput {
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    };
-    if output.status.code() == Some(expect_status) {
+    let captured = CapturedOutput { stdout, stderr };
+    if !timed_out && status.code() == Some(expect_status) {
         Ok(captured)
     } else {
         Err(captured)
@@ -266,5 +365,39 @@ mod tests {
         let results = execute(&plan);
         assert_eq!(results[0].status, TaskStatus::Failed);
         assert_eq!(results[1].status, TaskStatus::Skipped);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_timeout_fails_the_task() {
+        let mut command = item(
+            "slow",
+            &[],
+            TaskKind::Command {
+                command: vec!["sh".to_string(), "-c".to_string(), "sleep 2".to_string()],
+                expect_status: 0,
+            },
+        );
+        command
+            .env
+            .insert(COMMAND_TIMEOUT_ENV.to_string(), "1".to_string());
+        let plan = Plan {
+            profile: "verify".to_string(),
+            context: "local".to_string(),
+            selection: Selection::Full,
+            files: Vec::new(),
+            items: vec![command],
+        };
+
+        let results = execute(&plan);
+
+        assert_eq!(results[0].status, TaskStatus::Failed);
+        assert!(results[0].stderr.contains("command timed out after 1 second"));
+    }
+
+    #[test]
+    fn zero_timeout_disables_the_deadline() {
+        let env = BTreeMap::from([(COMMAND_TIMEOUT_ENV.to_string(), "0".to_string())]);
+        assert_eq!(command_timeout(&env).expect("timeout"), None);
     }
 }

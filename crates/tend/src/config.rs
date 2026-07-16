@@ -4,7 +4,7 @@ use std::path::{Component, Path};
 use crate::graph;
 use crate::model::{
     ExecutionContextConfig, FileArgs, Phase, TaskConfig, TaskImplementation, TaskKind, TendConfig,
-    TendError, Workspace, CONFIG_VERSION,
+    TendError, Workspace,
 };
 use crate::selection;
 
@@ -31,12 +31,6 @@ pub fn validate(workspace: &Workspace) -> Result<(), TendError> {
     let config = &workspace.config;
     let mut errors = Vec::new();
 
-    if config.version != CONFIG_VERSION {
-        errors.push(format!(
-            "unsupported config version {}; expected {CONFIG_VERSION}",
-            config.version
-        ));
-    }
     if config.node.id.trim().is_empty() {
         errors.push("node id must not be empty".to_string());
     }

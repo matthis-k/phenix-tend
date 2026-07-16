@@ -2,7 +2,7 @@
 
 Tend is a deterministic task planner and runner for repository quality gates.
 
-Schema v2 separates logical tasks, profiles, execution contexts, and concrete implementations. See [ARCHITECTURE.md](ARCHITECTURE.md) for the model and [MIGRATION.md](MIGRATION.md) for a complete migration example.
+Tend separates logical tasks, profiles, execution contexts, and concrete implementations. See [ARCHITECTURE.md](ARCHITECTURE.md) for the model.
 
 ## Commands
 
@@ -53,5 +53,3 @@ These variables are metadata for task implementations. File selection remains ma
 Command execution has a 30-minute deadline by default. Set `TEND_TIMEOUT_SECONDS` in an execution context or implementation environment to override it for that command. A value of `0` explicitly disables the deadline. Invalid values fail the task before it is spawned.
 
 Human-readable output is intentionally compact. `plan --json`, `check --json`, and `list --json` provide the structured interfaces for automation and diagnostics.
-
-There is no schema-v1 compatibility layer.

@@ -1,6 +1,6 @@
-# Tend v2 architecture
+# Tend architecture
 
-Tend separates four concerns that were previously mixed together.
+Tend separates four concerns that would otherwise be mixed together.
 
 ## Logical tasks
 
@@ -51,6 +51,12 @@ Command implementations may explicitly request selected files as arguments:
 
 The planner materializes these arguments in the immutable plan. Scripts do not parse Tend-specific environment payloads or reimplement Git selection.
 
+## Configuration contract
+
+`.tend.json` has one schema: the schema implemented by the checked-out Tend revision. It has no API-version discriminator and no compatibility parser for historical formats. Unknown root fields are rejected so stale configuration fails explicitly instead of being silently accepted.
+
+Repositories coupled through lockfiles must update their Tend input and configuration together. Historical schemas remain available in Git history rather than in the runtime implementation.
+
 ## Command trust boundary
 
 A `.tend.json` file is executable repository configuration, not untrusted data. A command implementation runs the configured executable directly, with the configured arguments, working directory, and environment. Tend does not invoke a shell unless the configuration explicitly names one.
@@ -90,11 +96,3 @@ configuration
 ```
 
 The plan is the boundary between policy and mechanism. Execution does not decide which tasks or implementations should run.
-
-## Deliberate break
-
-Schema v1 and the previous CLI are not supported. This release is an architectural reset while Tend is still pre-stable. Repositories must migrate their `.tend.json` and invoke commands in the explicit form:
-
-```sh
-tend check --profile ci --context local --base "$BASE" --head "$HEAD"
-```

@@ -6,7 +6,6 @@ fn write_config(root: &std::path::Path, networked_direct: bool) {
     let direct_network = if networked_direct { "true" } else { "false" };
     let config = format!(
         r#"{{
-  "version": 2,
   "profiles": {{
     "verify": {{
       "phase": "verify",
@@ -96,4 +95,18 @@ fn load_rejects_an_unsafe_profile_context_matrix() {
 
     let error = tend::load(directory.path()).expect_err("networked sandbox task must fail");
     assert!(error.to_string().contains("network access is not allowed"));
+}
+
+#[test]
+fn load_rejects_a_legacy_version_discriminator() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_config(directory.path(), false);
+
+    let path = directory.path().join(".tend.json");
+    let config = fs::read_to_string(&path).expect("read Tend configuration");
+    let versioned = config.replacen('{', "{\n  \"version\": 2,", 1);
+    fs::write(&path, versioned).expect("write legacy Tend configuration");
+
+    let error = tend::load(directory.path()).expect_err("legacy version field must fail");
+    assert!(error.to_string().contains("unknown field `version`"));
 }

@@ -237,7 +237,6 @@ mod tests {
             root: PathBuf::from("/tmp"),
             config_path: PathBuf::from("/tmp/.tend.json"),
             config: TendConfig {
-                version: 2,
                 profiles: BTreeMap::from([(
                     "verify".to_string(),
                     ProfileConfig {

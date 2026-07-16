@@ -1,6 +1,0 @@
-[workspace]
-members = [
-  "crates/tend",
-  "crates/tend-cli",
-]
-resolver = "2"

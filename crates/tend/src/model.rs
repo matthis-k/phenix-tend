@@ -3,8 +3,6 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_VERSION: u32 = 2;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Phase {
@@ -57,8 +55,8 @@ pub enum FileArgs {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TendConfig {
-    pub version: u32,
     pub profiles: BTreeMap<String, ProfileConfig>,
     pub contexts: BTreeMap<String, ExecutionContextConfig>,
     pub node: NodeConfig,
